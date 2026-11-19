@@ -1,0 +1,112 @@
+// Talking to the comparing engine (src-tauri/src/engine.rs).
+import { invoke } from '@tauri-apps/api/core';
+
+export interface SideInfo {
+  name: string;
+  path: string;
+  size: number;
+  lines: number;
+}
+
+export interface Summary {
+  left: SideInfo;
+  right: SideInfo;
+  totalRows: number;
+  blocks: number;
+  added: number;
+  removed: number;
+  changed: number;
+  millis: number;
+}
+
+/** A piece of a line. h = highlighted (changed). */
+export interface Seg {
+  t: string;
+  h: boolean;
+}
+
+export interface Cell {
+  n: number;
+  s: Seg[];
+}
+
+/** k: 0 = same, 1 = changed, 2 = added, 3 = removed */
+export interface Row {
+  k: 0 | 1 | 2 | 3;
+  l: Cell | null;
+  r: Cell | null;
+}
+
+export interface Hit {
+  index: number;
+  row: number;
+  rows: number;
+}
+
+export interface Options {
+  ignoreSpaces: boolean;
+  ignoreCase: boolean;
+  ignoreBlankLines: boolean;
+}
+
+/** Returned as the error when Cancel was pressed, or a newer comparison replaced this one. */
+export const CANCELLED = '__cancelled__';
+export const STALE = '__stale__';
+
+export const compare = (left: string, right: string, options: Options) =>
+  invoke<Summary>('compare', { left, right, options });
+/** 0 to 1000 */
+export const progress = () => invoke<number>('progress');
+export const cancel = () => invoke<void>('cancel');
+export const fetchRows = (start: number, count: number) => invoke<Row[]>('rows', { start, count });
+/** dir: 1 = next, -1 = previous, 0 = first at or after row */
+export const nav = (row: number, dir: number) => invoke<Hit | null>('nav', { row, dir });
+export const overview = (buckets: number) => invoke<number[]>('overview', { buckets });
+/** line starts at 1 */
+export const rowForLine = (left: boolean, line: number) => invoke<number | null>('row_for_line', { left, line });
+export const find = (query: string, from: number | null, forward: boolean, matchCase: boolean) =>
+  invoke<number | null>('find', { query, from, forward, matchCase });
+export const closeCompare = () => invoke<void>('close_compare');
+export const savePasted = (original: string, changed: string) =>
+  invoke<[string, string]>('save_pasted', { original, changed });
+/** Files handed to the app (at start, or later from the right-click menu) not yet picked up. */
+export const takeFiles = () => invoke<string[]>('take_files');
+
+export interface InstallInfo {
+  supported: boolean;
+  runningInstalled: boolean;
+  installed: boolean;
+  installPath: string;
+}
+export const installInfo = () => invoke<InstallInfo>('install_info');
+export const installApp = (contextMenu: boolean, desktopShortcut: boolean) =>
+  invoke<void>('install_app', { contextMenu, desktopShortcut });
+export const openInstalled = () => invoke<void>('open_installed');
+
+export interface UpdateInfo {
+  available: boolean;
+  current: string;
+  latest: string;
+  notes: string;
+  date: string;
+  canInstall: boolean;
+}
+export const checkUpdate = () => invoke<UpdateInfo>('check_update');
+/** Downloads, checks the signature, replaces the app and restarts it. */
+export const installUpdate = () => invoke<void>('install_update');
+
+export const PROJECT_URL = 'https://github.com/92-bit/SideBySide';
+export const RELEASES_URL = 'https://github.com/92-bit/SideBySide/releases/latest';
+
+export const fmtNum = (n: number) => n.toLocaleString('en-US');
+
+export function fmtSize(bytes: number): string {
+  const units = ['bytes', 'KB', 'MB', 'GB', 'TB'];
+  let v = bytes;
+  let u = 0;
+  while (v >= 1024 && u < units.length - 1) {
+    v /= 1024;
+    u++;
+  }
+  return u === 0 ? `${v} bytes` : `${v.toFixed(v < 10 ? 1 : 0)} ${units[u]}`;
+}

@@ -1,0 +1,122 @@
+/* SideBySide colors. "dark" is the Midnight style, "light" is its daytime version. */
+:root,
+:root[data-theme='dark'] {
+  --bg: #1b1d22;
+  --bg-chrome: #131418;
+  --bg-raised: #202329;
+  --fg: #c9ccd3;
+  --fg-strong: #e6e8ec;
+  --muted: #7d828c;
+  --faint: #5d626d;
+  --border: #2a2d34;
+  --border-2: #2f333b;
+  --hover: #262931;
+  --accent: #7aa2f7;
+  --accent-bg: #283350;
+  --accent-border: #3d4f80;
+  --accent-fg: #c8d6ff;
+  --on-accent: #0f1320;
+  --status-bg: #34436e;
+  --status-fg: #e6e8ff;
+  --close-hover: #c42b1c;
+  --add: rgba(46, 160, 67, 0.18);
+  --del: rgba(248, 81, 73, 0.16);
+  --chg: rgba(210, 153, 34, 0.13);
+  --mark: rgba(210, 153, 34, 0.45);
+  --fill-a: #1b1d22;
+  --fill-b: #23262c;
+  --ln-fg: #4f5562;
+  --ln-hot: #8b909a;
+  --ln-bg: #181a1f;
+  --map-bg: #16181c;
+  --thumb: rgba(255, 255, 255, 0.13);
+  --error: #f85149;
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --bg: #ffffff;
+  --bg-chrome: #eef0f3;
+  --bg-raised: #f7f8fa;
+  --fg: #383a42;
+  --fg-strong: #24262c;
+  --muted: #6b707a;
+  --faint: #9aa0a6;
+  --border: #e3e4e8;
+  --border-2: #d6d9df;
+  --hover: #e2e4e9;
+  --accent: #3b5bdb;
+  --accent-bg: #e7ecff;
+  --accent-border: #b6c3f5;
+  --accent-fg: #2f4ac0;
+  --on-accent: #ffffff;
+  --status-bg: #3b5bdb;
+  --status-fg: #ffffff;
+  --close-hover: #c42b1c;
+  --add: rgba(46, 160, 67, 0.14);
+  --del: rgba(220, 50, 50, 0.11);
+  --chg: rgba(210, 153, 34, 0.14);
+  --mark: rgba(230, 170, 30, 0.45);
+  --fill-a: #f7f7f9;
+  --fill-b: #ececf0;
+  --ln-fg: #a8acb6;
+  --ln-hot: #6b707a;
+  --ln-bg: #f7f7f9;
+  --map-bg: #eef0f3;
+  --thumb: rgba(0, 0, 0, 0.13);
+  --error: #c62828;
+  color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.4 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+/* "Original" / "New" labels */
+.tag {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  flex: none;
+}
+.tag.old {
+  background: rgba(248, 81, 73, 0.16);
+  color: #e5534b;
+}
+.tag.new {
+  background: rgba(46, 160, 67, 0.18);
+  color: #3fb950;
+}
+:root[data-theme='light'] .tag.old {
+  color: #c62828;
+}
+:root[data-theme='light'] .tag.new {
+  color: #1a7f37;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}

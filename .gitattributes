@@ -1,0 +1,7 @@
+# Keep line endings the same on every computer (Windows, Mac, Linux)
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.icns binary
+# Signed test files must stay byte-for-byte identical
+src-tauri/test-data/* binary

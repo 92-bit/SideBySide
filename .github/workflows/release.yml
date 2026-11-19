@@ -1,0 +1,130 @@
+# Builds SideBySide on GitHub's computers and prepares a release.
+#
+# How to make a release:
+#   1. Change the version:  node scripts/set-version.mjs 0.2.0   (then commit and push)
+#   2. Add a "## 0.2.0" section to CHANGELOG.md                  (then commit and push)
+#   3. On GitHub: Actions → Release → Run workflow → type 0.2.0
+#   4. A *draft* release appears under Releases. Check it, then click "Publish release".
+#      Once published, everyone's SideBySide will offer the update.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, for example 0.2.0'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Check the version number matches
+        shell: bash
+        run: |
+          APP=$(node -p "require('./package.json').version")
+          if [ "$APP" != "${{ inputs.version }}" ]; then
+            echo "::error::The app's version is $APP but you asked to release ${{ inputs.version }}. Run: node scripts/set-version.mjs ${{ inputs.version }}"
+            exit 1
+          fi
+
+      - run: npm ci
+      - name: Run the automatic tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+      - name: Build SideBySide.exe
+        run: npm run tauri build -- --no-bundle
+
+      - name: Sign it for safe updates
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          mkdir dist
+          cp src-tauri/target/release/sidebyside.exe dist/SideBySide.exe
+          npx tauri signer sign dist/SideBySide.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/
+
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Install Linux build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libxdo-dev
+      - run: npm ci
+      - name: Build AppImage and .deb
+        run: npm run tauri build -- --bundles appimage,deb
+      - name: Collect files
+        run: |
+          mkdir dist
+          cp src-tauri/target/release/bundle/appimage/*.AppImage dist/
+          cp src-tauri/target/release/bundle/deb/*.deb dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/
+
+  release:
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          TAG="v$VERSION"
+          # Release notes: the "## <version>" section of CHANGELOG.md
+          awk -v v="## $VERSION" '$0==v{f=1;next} /^## /{f=0} f' CHANGELOG.md > notes.md
+          sed -i '/./,$!d' notes.md   # drop blank lines at the top
+          if [ ! -s notes.md ]; then echo "SideBySide $VERSION" > notes.md; fi
+
+          # latest.json tells every SideBySide where the new version is and how to check it
+          URL="https://github.com/${{ github.repository }}/releases/download/$TAG/SideBySide.exe"
+          jq -n \
+            --arg version "$VERSION" \
+            --rawfile notes notes.md \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg url "$URL" \
+            --rawfile sig artifacts/windows/SideBySide.exe.sig \
+            '{version: $version, notes: ($notes | rtrimstr("\n")), pub_date: $date,
+              platforms: {"windows-x86_64": {url: $url, signature: ($sig | rtrimstr("\n"))}}}' > latest.json
+
+          gh release create "$TAG" --draft --target "${{ github.sha }}" \
+            --title "SideBySide $VERSION" --notes-file notes.md \
+            artifacts/windows/SideBySide.exe \
+            artifacts/windows/SideBySide.exe.sig \
+            artifacts/linux/* \
+            latest.json
