@@ -62,7 +62,7 @@ fn platform_key() -> &'static str {
     }
 }
 
-/// "v1.2.3" → (1, 2, 3). Anything after "-" or "+" is ignored.
+/// "v1.2.3" → (1, 2, 3). A test-version label after "-" (like "-rc1") and anything after "+" are left out.
 pub fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
     let core = v.trim().trim_start_matches('v').split(['-', '+']).next()?;
     let mut parts = core.split('.').map(|p| p.parse::<u64>().ok());
@@ -72,8 +72,40 @@ pub fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
     Some((major, minor, patch))
 }
 
+/// The test-version label of "1.2.0-rc.2" is "rc.2"; a final version has none.
+fn test_label(v: &str) -> Option<&str> {
+    let v = v.trim().split('+').next()?;
+    v.split_once('-').map(|(_, label)| label)
+}
+
+/// Is `latest` newer than `current`? A test version (like 1.2.0-rc1) comes before the
+/// final 1.2.0, so people on a test version are offered the final one.
 fn is_newer(latest: &str, current: &str) -> bool {
-    matches!((parse_version(latest), parse_version(current)), (Some(a), Some(b)) if a > b)
+    use std::cmp::Ordering::*;
+    let (Some(a), Some(b)) = (parse_version(latest), parse_version(current)) else { return false };
+    match a.cmp(&b) {
+        Greater => true,
+        Less => false,
+        Equal => match (test_label(latest), test_label(current)) {
+            (None, Some(_)) => true,
+            (Some(x), Some(y)) => compare_labels(x, y) == Greater,
+            _ => false,
+        },
+    }
+}
+
+/// Compare test labels piece by piece: "rc.10" after "rc.9", "beta" after "alpha".
+fn compare_labels(x: &str, y: &str) -> std::cmp::Ordering {
+    // Split "rc10" into "rc" and 10, so numbers compare as numbers.
+    fn pieces(s: &str) -> Vec<(String, u64)> {
+        s.split('.')
+            .map(|p| {
+                let at = p.find(|c: char| c.is_ascii_digit()).unwrap_or(p.len());
+                (p[..at].to_string(), p[at..].parse().unwrap_or(0))
+            })
+            .collect()
+    }
+    pieces(x).cmp(&pieces(y))
 }
 
 fn agent() -> ureq::Agent {
@@ -83,16 +115,29 @@ fn agent() -> ureq::Agent {
         .build()
 }
 
-/// None when nothing has been published yet.
-fn fetch_latest() -> Result<Option<Latest>, String> {
-    match agent().get(&source_url()).call() {
-        Ok(resp) => {
-            let body = resp.into_string().map_err(|e| format!("Couldn't read the update information: {e}"))?;
-            serde_json::from_str(&body).map(Some).map_err(|e| format!("The update information looks wrong: {e}"))
-        }
+/// Download a small text file. None when it doesn't exist (yet).
+fn fetch_text(url: &str) -> Result<Option<String>, String> {
+    match agent().get(url).call() {
+        Ok(resp) => resp.into_string().map(Some).map_err(|e| format!("Couldn't read the update information: {e}")),
         Err(ureq::Error::Status(404, _)) => Ok(None),
         Err(e) => Err(format!("Couldn't reach GitHub to check for updates. Are you online? ({e})")),
     }
+}
+
+/// None when nothing has been published yet.
+fn fetch_latest() -> Result<Option<Latest>, String> {
+    let url = source_url();
+    let Some(body) = fetch_text(&url)? else { return Ok(None) };
+    let sig = fetch_text(&format!("{url}.sig"))?.ok_or("The update information isn't signed, so it was ignored.")?;
+    read_latest(&body, &sig).map(Some)
+}
+
+/// Check that latest.json was signed with the 92-bit update key, then read it.
+/// (So nobody can make SideBySide go back to an older version, or offer one that doesn't exist.)
+fn read_latest(body: &str, sig: &str) -> Result<Latest, String> {
+    verify(body.as_bytes(), sig)
+        .map_err(|_| "The update information didn't match its signature, so it was ignored.".to_string())?;
+    serde_json::from_str(body).map_err(|e| format!("The update information looks wrong: {e}"))
 }
 
 pub fn check(current: &str) -> Result<UpdateInfo, String> {
@@ -197,6 +242,37 @@ mod tests {
         assert!(is_newer("0.10.0", "0.9.0"));
         assert!(!is_newer("0.1.0", "0.1.0"));
         assert!(!is_newer("0.1.0", "0.2.0"));
+    }
+
+    #[test]
+    fn test_versions_get_the_final_one() {
+        assert!(is_newer("0.2.0", "0.2.0-rc1"));
+        assert!(!is_newer("0.2.0-rc1", "0.2.0"));
+        assert!(is_newer("0.2.0-rc.10", "0.2.0-rc.9"));
+        assert!(is_newer("0.2.0-rc10", "0.2.0-rc9"));
+        assert!(is_newer("0.2.0-beta", "0.2.0-alpha"));
+        assert!(!is_newer("0.2.0-rc1", "0.2.0-rc1"));
+        assert!(is_newer("0.2.0-rc1", "0.1.9"));
+        assert!(!is_newer("0.1.9", "0.2.0-rc1"));
+        assert!(!is_newer("0.2.0+build5", "0.2.0"));
+    }
+
+    const LATEST: &str = include_str!("../test-data/latest-sample.json");
+    const LATEST_SIG: &str = include_str!("../test-data/latest-sample.json.sig");
+
+    #[test]
+    fn signed_update_information_is_accepted() {
+        let l = read_latest(LATEST, LATEST_SIG).unwrap();
+        assert_eq!(l.version, "9.9.9");
+        assert!(l.platforms.contains_key("windows-x86_64"));
+    }
+
+    #[test]
+    fn changed_update_information_is_refused() {
+        let changed = LATEST.replace("9.9.9", "9.9.8");
+        assert!(read_latest(&changed, LATEST_SIG).is_err());
+        // the signature of a different file doesn't count either
+        assert!(read_latest(LATEST, SAMPLE_SIG).is_err());
     }
 
     #[test]

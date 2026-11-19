@@ -10,7 +10,7 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use imara_diff::{Diff, InternedInput};
 use memchr::{memchr, memmem};
@@ -27,6 +27,8 @@ const MAX_SEARCH: usize = 1 << 20;
 /// Lines longer than this are not word-compared (they are highlighted as a whole).
 const WORD_DIFF_MAX: usize = 2_000;
 const READ_BUF: usize = 1 << 20;
+/// Lines longer than this (in bytes) are remembered, so the screen can jump over them.
+const LONG_LINE: u64 = 64 * 1024;
 /// How many lines are matched up at a time.
 const WINDOW: usize = 20_000;
 /// The furthest the matching looks ahead (in lines) when a big block was added or removed.
@@ -38,6 +40,8 @@ const SOLID: usize = 16;
 
 /// Returned as the error when the user pressed Cancel.
 pub const CANCELLED: &str = "__cancelled__";
+/// Returned as the error when a file was changed on disk after it was compared.
+pub const CHANGED: &str = "__changed__";
 
 #[derive(Debug, Clone, Copy, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -67,6 +71,17 @@ impl Control {
     }
 }
 
+/// How Find treats UPPER and lower case.
+#[derive(Clone, Copy)]
+enum Case {
+    /// exactly as typed
+    Exact,
+    /// ignore case of plain English letters (fast)
+    Ascii,
+    /// ignore case of all letters, like "Ä" and "ä"
+    Any,
+}
+
 fn is_space(b: u8) -> bool {
     matches!(b, b' ' | b'\t' | b'\r' | 0x0B | 0x0C)
 }
@@ -78,9 +93,14 @@ fn is_space(b: u8) -> bool {
 pub struct Side {
     path: PathBuf,
     size: u64,
+    /// When the file was last changed, as it was when compared.
+    modified: Option<SystemTime>,
     lines: u32,
     /// Byte position of line 0, 256, 512, ...
     index: Vec<u64>,
+    /// Very long lines (line number, byte position where the next line starts), so they
+    /// can be jumped over instead of read through every time the screen needs a few lines.
+    long: Vec<(u32, u64)>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -108,14 +128,35 @@ impl Side {
         }
     }
 
+    /// True if the file was changed (or removed) since it was compared.
+    fn changed_on_disk(&self) -> bool {
+        match std::fs::metadata(&self.path) {
+            Ok(m) => m.len() != self.size || m.modified().ok() != self.modified,
+            Err(_) => true,
+        }
+    }
+
+    /// Where the line after `line` starts, if `line` is a very long line.
+    fn after_long(&self, line: u32) -> Option<u64> {
+        self.long.binary_search_by_key(&line, |&(n, _)| n).ok().map(|k| self.long[k].1)
+    }
+
     /// Open the file, positioned at the start of line `line`.
     fn open_at(&self, line: u32) -> io::Result<BufReader<File>> {
         let block = line / STRIDE;
+        let (mut at_line, mut pos) = (block * STRIDE, self.index[block as usize]);
+        // Jump past the last very long line before `line`, if there is one in this block.
+        let k = self.long.partition_point(|&(n, _)| n < line);
+        if let Some(&(n, next)) = k.checked_sub(1).map(|k| &self.long[k]) {
+            if n >= at_line {
+                (at_line, pos) = (n + 1, next);
+            }
+        }
         let mut file = File::open(&self.path)?;
-        file.seek(SeekFrom::Start(self.index[block as usize]))?;
+        file.seek(SeekFrom::Start(pos))?;
         let mut r = BufReader::with_capacity(64 * 1024, file);
         let mut buf = Vec::new();
-        for _ in 0..(line - block * STRIDE) {
+        for _ in at_line..line {
             if read_line_capped(&mut r, 0, &mut buf)?.is_none() {
                 break;
             }
@@ -131,11 +172,20 @@ impl Side {
         }
         let mut r = self.open_at(first)?;
         let mut buf = Vec::new();
-        for _ in 0..count {
-            match read_line_capped(&mut r, MAX_SHOW, &mut buf)? {
+        for line in first..first.saturating_add(count) {
+            match read_line_start(&mut r, MAX_SHOW, &mut buf)? {
                 None => break,
                 Some(truncated) => {
-                    if !truncated && buf.last() == Some(&b'\r') {
+                    if truncated {
+                        // Don't read the rest of a cut line: jump to the next line if we know
+                        // where it starts (very long lines), otherwise read on to it.
+                        match self.after_long(line) {
+                            Some(next) => {
+                                r.seek(SeekFrom::Start(next))?;
+                            }
+                            None => skip_rest_of_line(&mut r)?,
+                        }
+                    } else if buf.last() == Some(&b'\r') {
                         buf.pop();
                     }
                     let mut s = String::from_utf8_lossy(&buf).into_owned();
@@ -150,7 +200,7 @@ impl Side {
     }
 
     /// Look for `needle` in lines `from..to`. Returns the first (or last) line that has it.
-    fn search(&self, needle: &[u8], from: u32, to: u32, match_case: bool, want_last: bool, ctl: &Control) -> Result<Option<u32>, String> {
+    fn search(&self, needle: &[u8], from: u32, to: u32, case: Case, want_last: bool, ctl: &Control) -> Result<Option<u32>, String> {
         let to = to.min(self.lines);
         if from >= to || needle.is_empty() {
             return Ok(None);
@@ -166,10 +216,15 @@ impl Side {
             if read_line_capped(&mut r, MAX_SEARCH, &mut buf).map_err(|e| e.to_string())?.is_none() {
                 break;
             }
-            if !match_case {
-                buf.make_ascii_lowercase();
-            }
-            if finder.find(&buf).is_some() {
+            let hit = match case {
+                Case::Exact => finder.find(&buf).is_some(),
+                Case::Ascii => {
+                    buf.make_ascii_lowercase();
+                    finder.find(&buf).is_some()
+                }
+                Case::Any => finder.find(String::from_utf8_lossy(&buf).to_lowercase().as_bytes()).is_some(),
+            };
+            if hit {
                 found = Some(line);
                 if !want_last {
                     break;
@@ -208,6 +263,56 @@ fn read_line_capped<R: BufRead>(r: &mut R, cap: usize, out: &mut Vec<u8>) -> io:
     }
 }
 
+/// Read the start of one line into `out`, at most `cap` bytes. Unlike `read_line_capped`,
+/// a longer line is left half-read: the caller must skip the rest.
+/// Returns None at end of file, otherwise Some(was_cut_short).
+fn read_line_start<R: BufRead>(r: &mut R, cap: usize, out: &mut Vec<u8>) -> io::Result<Option<bool>> {
+    out.clear();
+    let mut any = false;
+    loop {
+        let buf = r.fill_buf()?;
+        if buf.is_empty() {
+            return Ok(any.then_some(false));
+        }
+        any = true;
+        let room = cap - out.len();
+        match memchr(b'\n', &buf[..buf.len().min(room + 1)]) {
+            Some(j) => {
+                out.extend_from_slice(&buf[..j]);
+                r.consume(j + 1);
+                return Ok(Some(false));
+            }
+            None if buf.len() > room => {
+                // More than `cap` bytes before the line end.
+                out.extend_from_slice(&buf[..room]);
+                r.consume(room);
+                return Ok(Some(true));
+            }
+            None => {
+                let n = buf.len();
+                out.extend_from_slice(buf);
+                r.consume(n);
+            }
+        }
+    }
+}
+
+/// Read on to the start of the next line.
+fn skip_rest_of_line<R: BufRead>(r: &mut R) -> io::Result<()> {
+    loop {
+        let buf = r.fill_buf()?;
+        if buf.is_empty() {
+            return Ok(());
+        }
+        if let Some(j) = memchr(b'\n', buf) {
+            r.consume(j + 1);
+            return Ok(());
+        }
+        let n = buf.len();
+        r.consume(n);
+    }
+}
+
 struct Scanned {
     side: Side,
     /// One fingerprint per line (blank lines left out when they are ignored)
@@ -222,10 +327,8 @@ struct Scanned {
 fn scan(path: &Path, opts: &Options, ctl: &Control, done_before: u64, total: u64) -> Result<Scanned, String> {
     let name = file_name(path);
     let file = File::open(path).map_err(|e| format!("Could not open \"{name}\": {e}"))?;
-    let size = file
-        .metadata()
-        .map_err(|e| format!("Could not read \"{name}\": {e}"))?
-        .len();
+    let meta = file.metadata().map_err(|e| format!("Could not read \"{name}\": {e}"))?;
+    let (size, modified) = (meta.len(), meta.modified().ok());
     let io_err = |e: io::Error| format!("Could not read \"{name}\": {e}");
 
     let mut r = BufReader::with_capacity(READ_BUF, file);
@@ -248,9 +351,14 @@ fn scan(path: &Path, opts: &Options, ctl: &Control, done_before: u64, total: u64
     }
 
     let skip_blank = opts.ignore_blank_lines;
-    let mut hashes: Vec<u64> = Vec::with_capacity(expected_lines.min(u32::MAX as usize));
+    // (A guess from a first piece full of very short lines could be far too big:
+    // never reserve more than one line per two bytes, and carry on if it can't be reserved.)
+    let mut hashes: Vec<u64> = Vec::new();
+    let _ = hashes.try_reserve(expected_lines.min(size as usize / 2 + 16).min(u32::MAX as usize));
     let mut map: Option<Vec<u32>> = skip_blank.then(Vec::new);
     let mut index: Vec<u64> = Vec::new();
+    let mut long: Vec<(u32, u64)> = Vec::new();
+    let mut line_start: u64 = 0;
     let mut line_no: u64 = 0;
     let mut hasher = Xxh3::new();
     let mut in_line = false;
@@ -289,6 +397,7 @@ fn scan(path: &Path, opts: &Options, ctl: &Control, done_before: u64, total: u64
                 if line_no % STRIDE as u64 == 0 {
                     index.push(pos + i as u64);
                 }
+                line_start = pos + i as u64;
                 in_line = true;
                 has_text = false;
             }
@@ -302,6 +411,10 @@ fn scan(path: &Path, opts: &Options, ctl: &Control, done_before: u64, total: u64
             }
             feed(&mut hasher, seg, ends_line, &mut pending_cr, opts, &mut scratch);
             if ends_line {
+                let line_end = pos + end as u64;
+                if line_end - line_start > LONG_LINE {
+                    long.push((line_no as u32, line_end + 1));
+                }
                 end_line!();
                 i = end + 1;
             } else {
@@ -322,7 +435,8 @@ fn scan(path: &Path, opts: &Options, ctl: &Control, done_before: u64, total: u64
     if let Some(m) = map.as_mut() {
         m.shrink_to_fit();
     }
-    let side = Side { path: path.to_path_buf(), size, lines: line_no as u32, index };
+    long.shrink_to_fit();
+    let side = Side { path: path.to_path_buf(), size, modified, lines: line_no as u32, index, long };
     Ok(Scanned { side, hashes, map })
 }
 
@@ -763,6 +877,10 @@ impl Comparison {
         if start >= end {
             return Ok(Vec::new());
         }
+        // The text is read from the files as needed; if one was changed since, it would be wrong.
+        if self.left.changed_on_disk() || self.right.changed_on_disk() {
+            return Err(CHANGED.into());
+        }
         let mut plan: Vec<(u8, Option<u32>, Option<u32>)> = Vec::with_capacity((end - start) as usize);
         let mut i = self.ops.partition_point(|o| o.row + o.rows() <= start);
         let mut r = start;
@@ -875,7 +993,14 @@ impl Comparison {
     /// Search both files for `query`. Returns the screen row of the next match after
     /// `from_row` (or before it, when going backwards), wrapping around at the end.
     pub fn find(&self, query: &str, from_row: Option<u64>, forward: bool, match_case: bool, ctl: &Control) -> Result<Option<u64>, String> {
-        let needle: Vec<u8> = if match_case { query.as_bytes().to_vec() } else { query.to_ascii_lowercase().into_bytes() };
+        // Plain English letters only: the quick way. Other letters (like "Ä"): full Unicode lower case.
+        let (needle, case) = if match_case {
+            (query.as_bytes().to_vec(), Case::Exact)
+        } else if query.is_ascii() {
+            (query.to_ascii_lowercase().into_bytes(), Case::Ascii)
+        } else {
+            (query.to_lowercase().into_bytes(), Case::Any)
+        };
         if needle.is_empty() || self.total_rows == 0 {
             return Ok(None);
         }
@@ -897,12 +1022,12 @@ impl Comparison {
                 None => (0, 0),
             };
             for ((side, left), from) in sides.iter().zip([la, lb]) {
-                take(&mut best, row_of(*left, side.search(&needle, from, u32::MAX, match_case, false, ctl)?), true);
+                take(&mut best, row_of(*left, side.search(&needle, from, u32::MAX, case, false, ctl)?), true);
             }
             if best.is_none() && from_row.is_some() {
                 // wrap around to the top
                 for ((side, left), to) in sides.iter().zip([la, lb]) {
-                    take(&mut best, row_of(*left, side.search(&needle, 0, to, match_case, false, ctl)?), true);
+                    take(&mut best, row_of(*left, side.search(&needle, 0, to, case, false, ctl)?), true);
                 }
             }
         } else {
@@ -911,12 +1036,12 @@ impl Comparison {
                 None => (self.left.lines, self.right.lines),
             };
             for ((side, left), to) in sides.iter().zip([la, lb]) {
-                take(&mut best, row_of(*left, side.search(&needle, 0, to, match_case, true, ctl)?), false);
+                take(&mut best, row_of(*left, side.search(&needle, 0, to, case, true, ctl)?), false);
             }
             if best.is_none() && from_row.is_some() {
                 // wrap around to the bottom
                 for ((side, left), from) in sides.iter().zip([la, lb]) {
-                    take(&mut best, row_of(*left, side.search(&needle, from, u32::MAX, match_case, true, ctl)?), false);
+                    take(&mut best, row_of(*left, side.search(&needle, from, u32::MAX, case, true, ctl)?), false);
                 }
             }
         }
@@ -1314,6 +1439,53 @@ mod tests {
         let c = cmp(&a.concat(), &b.concat(), Options::default());
         check_rows(&c, &ar, &br, false);
         assert_eq!(counts(&c), (3, 0, 75_000, 25_000));
+    }
+
+    #[test]
+    fn very_long_lines_are_jumped_over() {
+        // Lines of 200 KB, 15 KB and 3 MB between short ones, with a change after them.
+        let big = |c: char, n: usize| c.to_string().repeat(n);
+        let a = format!("start\n{}\nmid\n{}\n{}\nend\nlast\n", big('a', 200_000), big('b', 15_000), big('c', 3_000_000));
+        let b = a.replace("end\n", "END\n");
+        let c = cmp(&a, &b, Options::default());
+        assert_eq!(counts(&c), (1, 1, 0, 0));
+        let rows = c.rows(0, 10).unwrap();
+        let left: Vec<String> = rows.iter().map(|r| text(&r.l)).collect();
+        assert_eq!(left[0], "start");
+        assert!(left[1].starts_with("aaa") && left[1].ends_with('…') && left[1].len() < 20_000);
+        assert_eq!(left[2], "mid");
+        assert!(left[3].starts_with("bbb") && left[3].ends_with('…'));
+        assert!(left[4].starts_with("ccc") && left[4].ends_with('…'));
+        assert_eq!((left[5].as_str(), text(&rows[5].r).as_str(), rows[5].k), ("end", "END", 1));
+        assert_eq!(left[6], "last");
+        // starting in the middle, right after a long line, and at a long line
+        assert_eq!(text(&c.rows(5, 1).unwrap()[0].l), "end");
+        assert!(text(&c.rows(4, 1).unwrap()[0].l).starts_with("ccc"));
+        assert_eq!(text(&c.rows(2, 1).unwrap()[0].l), "mid");
+        // a line exactly as long as what is shown is not cut
+        let exact = big('x', MAX_SHOW);
+        let c = cmp(&format!("{exact}\nz\n"), &format!("{exact}\nz\n"), Options::default());
+        let rows = c.rows(0, 2).unwrap();
+        assert_eq!(text(&rows[0].l), exact);
+        assert_eq!(text(&rows[1].l), "z");
+    }
+
+    #[test]
+    fn a_file_changed_after_comparing_is_noticed() {
+        let (pa, pb) = (tmp(b"one\ntwo\n"), tmp(b"one\nthree\n"));
+        let c = cmp_paths(&pa, &pb, Options::default()).unwrap();
+        assert!(c.rows(0, 2).is_ok());
+        std::fs::write(&pb, b"one\nthree\nfour\n").unwrap();
+        assert_eq!(c.rows(0, 2).err().as_deref(), Some(CHANGED));
+    }
+
+    #[test]
+    fn find_ignores_case_of_all_letters() {
+        let c = cmp("x\nÄpfel\ny\n", "x\nÄpfel\ny\n", Options::default());
+        assert_eq!(find(&c, "äpfel", None, true, false), Some(1));
+        assert_eq!(find(&c, "ÄPFEL", None, true, false), Some(1));
+        assert_eq!(find(&c, "äpfel", None, true, true), None);
+        assert_eq!(find(&c, "Äpfel", None, true, true), Some(1));
     }
 
     #[test]

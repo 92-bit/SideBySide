@@ -205,7 +205,9 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // "SideBySide.exe --uninstall" comes from Windows Settings → Apps → Uninstall.
-    if std::env::args().any(|a| a == "--uninstall") {
+    // (args_os: a file name that is not valid Unicode, possible on Linux, must not crash the app)
+    let args: Vec<String> = std::env::args_os().map(|a| a.to_string_lossy().into_owned()).collect();
+    if args.iter().any(|a| a == "--uninstall") {
         install::uninstall();
         return;
     }
@@ -215,7 +217,7 @@ pub fn run() {
 
     let cwd = std::env::current_dir().unwrap_or_default();
     let state = AppState {
-        pending_files: Mutex::new(files_from_args(std::env::args(), &cwd)),
+        pending_files: Mutex::new(files_from_args(args, &cwd)),
         ..Default::default()
     };
 

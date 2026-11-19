@@ -34,12 +34,23 @@ jobs:
 
       - name: Check the version number matches
         shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          APP=$(node -p "require('./package.json').version")
-          if [ "$APP" != "${{ inputs.version }}" ]; then
-            echo "::error::The app's version is $APP but you asked to release ${{ inputs.version }}. Run: node scripts/set-version.mjs ${{ inputs.version }}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::'$VERSION' is not a version number like 0.2.0"
             exit 1
           fi
+          # The version is written in three files; all three must match.
+          PKG=$(node -p "require('./package.json').version")
+          CONF=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          CARGO=$(grep -m1 '^version' src-tauri/Cargo.toml | cut -d'"' -f2)
+          for v in "$PKG" "$CONF" "$CARGO"; do
+            if [ "$v" != "$VERSION" ]; then
+              echo "::error::The app's version numbers are $PKG (package.json), $CONF (tauri.conf.json), $CARGO (Cargo.toml) but you asked to release $VERSION. Run: node scripts/set-version.mjs $VERSION"
+              exit 1
+            fi
+          done
 
       - run: npm ci
       - name: Run the automatic tests
@@ -96,14 +107,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Create the draft release
+      - name: Write latest.json
         env:
-          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
+          REPO: ${{ github.repository }}
         run: |
           TAG="v$VERSION"
           # Release notes: the "## <version>" section of CHANGELOG.md
@@ -112,7 +128,7 @@ jobs:
           if [ ! -s notes.md ]; then echo "SideBySide $VERSION" > notes.md; fi
 
           # latest.json tells every SideBySide where the new version is and how to check it
-          URL="https://github.com/${{ github.repository }}/releases/download/$TAG/SideBySide.exe"
+          URL="https://github.com/$REPO/releases/download/$TAG/SideBySide.exe"
           jq -n \
             --arg version "$VERSION" \
             --rawfile notes notes.md \
@@ -122,9 +138,23 @@ jobs:
             '{version: $version, notes: ($notes | rtrimstr("\n")), pub_date: $date,
               platforms: {"windows-x86_64": {url: $url, signature: ($sig | rtrimstr("\n"))}}}' > latest.json
 
-          gh release create "$TAG" --draft --target "${{ github.sha }}" \
+      # latest.json is signed too, so nobody can point SideBySide at an older version.
+      - name: Sign latest.json
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npx tauri signer sign latest.json
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          SHA: ${{ github.sha }}
+        run: |
+          TAG="v$VERSION"
+          gh release create "$TAG" --draft --target "$SHA" \
             --title "SideBySide $VERSION" --notes-file notes.md \
             artifacts/windows/SideBySide.exe \
             artifacts/windows/SideBySide.exe.sig \
             artifacts/linux/* \
-            latest.json
+            latest.json latest.json.sig

@@ -2,7 +2,7 @@
   // Shows two files side by side. Only the rows on screen are ever loaded,
   // so this works the same for a 10-line file and a 10-million-line file.
   import { onMount } from 'svelte';
-  import { fetchRows, nav, overview, type Cell, type Hit, type Row, type Summary } from '$lib/api';
+  import { CHANGED, fetchRows, nav, overview, type Cell, type Hit, type Row, type Summary } from '$lib/api';
 
   let {
     summary,
@@ -11,6 +11,7 @@
     matchCase = false,
     onCurrent,
     onZoom,
+    onFilesChanged,
   }: {
     summary: Summary;
     fontSize?: number;
@@ -18,6 +19,8 @@
     matchCase?: boolean;
     onCurrent: (hit: Hit | null) => void;
     onZoom?: (step: number) => void;
+    /** A file was changed on disk after it was compared, so its text can't be shown correctly. */
+    onFilesChanged?: () => void;
   } = $props();
 
   const MAP_W = 14;
@@ -79,7 +82,9 @@
           rowsTop = t;
         }
       })
-      .catch(() => {});
+      .catch((e) => {
+        if (id === req && String(e) === CHANGED) onFilesChanged?.();
+      });
   });
 
   // Keep the view inside the file when the window is resized or zoomed.
@@ -133,11 +138,22 @@
     const span = Math.min(hit.rows, visible);
     if (hit.row < top || hit.row + span > top + visible) setTop(hit.row - Math.min(3, Math.floor(visible / 4)));
   }
-  export async function next() {
-    await go(await nav(current ? current.row : top, current ? 1 : 0));
+  // One step at a time: pressing F8 twice quickly moves two differences, not one.
+  let steps: Promise<void> = Promise.resolve();
+  function step(dir: 1 | -1) {
+    steps = steps
+      .then(async () => {
+        const from = current ? current.row : top;
+        await go(await nav(from, dir === 1 && !current ? 0 : dir));
+      })
+      .catch(() => {});
+    return steps;
   }
-  export async function prev() {
-    await go(await nav(current ? current.row : top, -1));
+  export function next() {
+    return step(1);
+  }
+  export function prev() {
+    return step(-1);
   }
 
   // Search highlights: split text into pieces that match the search and pieces that don't.

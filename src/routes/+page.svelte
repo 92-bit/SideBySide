@@ -61,6 +61,8 @@
   /** The ignore options of the result on screen, so Cancel can put the buttons back. */
   let shownIgnore = { spaces: false, blank: false, caseLetters: false };
   let findBar = $state<ReturnType<typeof FindBar>>();
+  /** A compared file was changed on disk since. */
+  let filesChanged = $state(false);
   let view = $state<ReturnType<typeof DiffView>>();
   let recent = $state<Recent[]>([]);
   let recentOpen = $state(false);
@@ -129,6 +131,7 @@
       if (id === runId) {
         summary = s;
         shownIgnore = used;
+        filesChanged = false;
         current = null;
         lastFound = null;
         pasteMode = false;
@@ -414,6 +417,13 @@
         />
       {/if}
 
+      {#if filesChanged && summary}
+        <div class="changed-bar" role="alert">
+          <span>A file was changed after it was compared, so the text shown may be out of date.</span>
+          <button type="button" onclick={() => run()}>Compare again</button>
+        </div>
+      {/if}
+
       <div class="stage">
         {#if summary}
           <div class="paths">
@@ -435,6 +445,7 @@
               {matchCase}
               onCurrent={(h) => (current = h)}
               onZoom={zoom}
+              onFilesChanged={() => (filesChanged = true)}
             />
           {/key}
         {:else if pasteMode}
@@ -708,6 +719,26 @@
     flex: 1;
   }
 
+  .changed-bar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: var(--fg-strong);
+    background: var(--accent-bg);
+    border-bottom: 1px solid var(--accent-border);
+  }
+  .changed-bar button {
+    font: inherit;
+    color: var(--accent-fg);
+    background: none;
+    border: 1px solid var(--accent-border);
+    border-radius: 5px;
+    padding: 2px 10px;
+    cursor: pointer;
+  }
   .stage {
     flex: 1;
     min-height: 0;

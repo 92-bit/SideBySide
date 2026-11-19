@@ -4,6 +4,7 @@
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { checkUpdate, installUpdate, PROJECT_URL, RELEASES_URL, type UpdateInfo } from '$lib/api';
   import { loadAutoUpdate, markUpdateChecked, saveAutoUpdate } from '$lib/settings';
+  import { trapFocus } from '$lib/trapFocus';
 
   let {
     version,
@@ -16,7 +17,6 @@
   let info = $state<UpdateInfo | null>(null);
   let error = $state('');
   let auto = $state(loadAutoUpdate());
-  let dialog = $state<HTMLDivElement>();
 
   async function check() {
     step = 'checking';
@@ -40,12 +40,11 @@
     }
   }
 
-  function onKey(e: KeyboardEvent) {
-    if (e.key === 'Escape' && step !== 'installing') onClose();
+  function onEscape() {
+    if (step !== 'installing') onClose();
   }
 
   onMount(() => {
-    dialog?.focus();
     if (known) {
       info = known;
       step = 'result';
@@ -55,8 +54,8 @@
   });
 </script>
 
-<div class="backdrop" role="presentation" onkeydown={onKey}>
-  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="about-title" tabindex="-1" bind:this={dialog}>
+<div class="backdrop" role="presentation">
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="about-title" tabindex="-1" use:trapFocus={{ onEscape }}>
     <div class="head">
       <img src="/icon.png" alt="" width="40" height="40" />
       <div>

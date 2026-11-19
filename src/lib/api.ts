@@ -52,6 +52,8 @@ export interface Options {
 /** Returned as the error when Cancel was pressed, or a newer comparison replaced this one. */
 export const CANCELLED = '__cancelled__';
 export const STALE = '__stale__';
+/** Returned as the error when a file was changed on disk after it was compared. */
+export const CHANGED = '__changed__';
 
 export const compare = (left: string, right: string, options: Options) =>
   invoke<Summary>('compare', { left, right, options });

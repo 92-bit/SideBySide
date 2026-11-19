@@ -1,6 +1,7 @@
 <script lang="ts">
   // Asks before installing, then installs and reopens SideBySide from its new home.
   import { installApp, openInstalled, type InstallInfo } from '$lib/api';
+  import { trapFocus } from '$lib/trapFocus';
 
   let { info, onClose }: { info: InstallInfo; onClose: () => void } = $props();
 
@@ -8,11 +9,6 @@
   let desktop = $state(false);
   let step = $state<'ask' | 'working' | 'done'>('ask');
   let error = $state<string | null>(null);
-  let dialog = $state<HTMLDivElement>();
-
-  $effect(() => {
-    dialog?.focus();
-  });
 
   async function install() {
     step = 'working';
@@ -26,13 +22,13 @@
     }
   }
 
-  function onKey(e: KeyboardEvent) {
-    if (e.key === 'Escape' && step !== 'working') onClose();
+  function onEscape() {
+    if (step !== 'working') onClose();
   }
 </script>
 
-<div class="backdrop" role="presentation" onkeydown={onKey}>
-  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="install-title" tabindex="-1" bind:this={dialog}>
+<div class="backdrop" role="presentation">
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="install-title" tabindex="-1" use:trapFocus={{ onEscape }}>
     {#if step === 'done'}
       <h2 id="install-title">✓ SideBySide is installed</h2>
       <p>You'll find it in your <b>Start Menu</b>. This window will now close and SideBySide will open from its new home.</p>
