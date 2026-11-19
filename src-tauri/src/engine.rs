@@ -29,6 +29,12 @@ const WORD_DIFF_MAX: usize = 2_000;
 const READ_BUF: usize = 1 << 20;
 /// How many lines are matched up at a time.
 const WINDOW: usize = 20_000;
+/// The furthest the matching looks ahead (in lines) when a big block was added or removed.
+const MAX_WINDOW: usize = 1 << 20;
+/// How many lines are sampled to check quickly whether a big block was added or removed.
+const PROBE: usize = 2_000;
+/// A matching stretch at least this long (in lines) is trusted as a place to stop a window.
+const SOLID: usize = 16;
 
 /// Returned as the error when the user pressed Cancel.
 pub const CANCELLED: &str = "__cancelled__";
@@ -436,14 +442,16 @@ impl BlankExpander<'_> {
                 self.rb = lb + 1;
             }
         } else {
-            let to_a = if alen > 0 { self.ma[fa] as usize } else { self.ra };
-            let to_b = if blen > 0 { self.mb[fb] as usize } else { self.rb };
-            self.gap(to_a, to_b);
-            let ea = if alen > 0 { self.ma[fa + alen - 1] as usize + 1 } else { self.ra };
-            let eb = if blen > 0 { self.mb[fb + blen - 1] as usize + 1 } else { self.rb };
-            self.ob.push(false, self.ra, ea - self.ra, self.rb, eb - self.rb);
-            self.ra = ea;
-            self.rb = eb;
+            // Pair the changed (non-blank) lines one by one. Blank lines in between are shown,
+            // but not counted as different and not paired with a real line.
+            for k in 0..alen.max(blen) {
+                let la = (k < alen).then(|| self.ma[fa + k] as usize);
+                let lb = (k < blen).then(|| self.mb[fb + k] as usize);
+                self.gap(la.unwrap_or(self.ra), lb.unwrap_or(self.rb));
+                self.ob.push(false, self.ra, la.is_some() as usize, self.rb, lb.is_some() as usize);
+                self.ra += la.is_some() as usize;
+                self.rb += lb.is_some() as usize;
+            }
         }
     }
 }
@@ -581,6 +589,62 @@ fn match_window(input: &mut InternedInput<u64>, a: &[u64], b: &[u64]) -> Vec<Par
     parts
 }
 
+/// Line fingerprints are already well mixed, so a hash table can use them as they are.
+#[derive(Default)]
+struct AsIs(u64);
+
+impl std::hash::Hasher for AsIs {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = self.0.rotate_left(8) ^ b as u64;
+        }
+    }
+    fn write_u64(&mut self, n: u64) {
+        self.0 = n;
+    }
+}
+
+/// A sample of the next lines of one side (only lines that occur once in the sample, so
+/// common lines like "}" or blank lines don't count), to check quickly whether they show up
+/// further on in the other side.
+struct Probe {
+    /// line fingerprint → found yet?
+    lines: std::collections::HashMap<u64, bool, std::hash::BuildHasherDefault<AsIs>>,
+    found: usize,
+    /// How far the other side was already looked through.
+    looked: usize,
+}
+
+impl Probe {
+    fn new(next: &[u64]) -> Self {
+        let mut lines = std::collections::HashMap::<u64, bool, _>::default();
+        for &h in next.iter().take(PROBE) {
+            // false: seen once so far, true: seen more than once
+            lines.entry(h).and_modify(|more| *more = true).or_insert(false);
+        }
+        lines.retain(|_, more| !*more);
+        Probe { lines, found: 0, looked: 0 }
+    }
+
+    /// Look through `other` (continuing where the last look stopped).
+    /// True when at least half of the sample was found.
+    fn look_in(&mut self, other: &[u64]) -> bool {
+        for h in &other[self.looked.min(other.len())..] {
+            if let Some(found) = self.lines.get_mut(h) {
+                if !*found {
+                    *found = true;
+                    self.found += 1;
+                }
+            }
+        }
+        self.looked = other.len();
+        self.found * 2 >= self.lines.len()
+    }
+}
+
 /// Match up lines a window at a time, so memory stays small however big the files are.
 /// Identical stretches are skipped quickly; only the area around each difference is matched.
 /// Every run found is handed to `sink(same, a, a_len, b, b_len)`.
@@ -605,28 +669,60 @@ fn diff_in_windows(
         if i >= a.len() && j >= b.len() {
             return Ok(());
         }
-        let ae = (i + WINDOW).min(a.len());
-        let be = (j + WINDOW).min(b.len());
-        let parts = match_window(&mut input, &a[i..ae], &b[j..be]);
+        // Match up the next window of lines.
+        let mut ae = (i + WINDOW).min(a.len());
+        let mut be = (j + WINDOW).min(b.len());
+        let mut parts = match_window(&mut input, &a[i..ae], &b[j..be]);
+        let matched: usize = parts.iter().filter(|p| p.4).map(|p| p.1).sum();
+        let at_end = ae == a.len() && be == b.len();
+
+        // Mostly different? Then maybe a big block was added (or removed) here, and the lines
+        // that match again lie further on. Look further ahead (doubling the stretch) until
+        // the next lines of one side show up in the other side. This check is quick; if it
+        // finds them, the window is matched once more, as big as needed. If nothing shows up
+        // even far ahead, these parts are simply different and the first window is used.
+        if !at_end && matched * 2 < (ae - i).min(be - j) {
+            let mut probe_a = Probe::new(&a[i..]);
+            let mut probe_b = Probe::new(&b[j..]);
+            let mut size = WINDOW;
+            let found = loop {
+                let (e1, e2) = ((i + size).min(a.len()), (j + size).min(b.len()));
+                let found = probe_a.look_in(&b[j..e2]) | probe_b.look_in(&a[i..e1]);
+                if found || (e1 == a.len() && e2 == b.len()) || size >= MAX_WINDOW {
+                    break found;
+                }
+                size *= 2;
+            };
+            if found && size > WINDOW {
+                ctl.check()?;
+                ae = (i + size).min(a.len());
+                be = (j + size).min(b.len());
+                parts = match_window(&mut input, &a[i..ae], &b[j..be]);
+            }
+        }
         let last_window = ae == a.len() && be == b.len();
 
-        // Keep the result up to a matching stretch in the first half of the window;
+        // Keep the result up to a solid matching stretch in the first half of the window;
         // the rest is matched again in the next window, with more lines to look ahead.
+        // Short matches (often lines like "}" or blank lines that just happen to line up)
+        // are only trusted as a place to stop when there is no solid matching stretch at all.
         let keep = if last_window {
             parts.len()
         } else {
             let (half_a, half_b) = ((ae - i) / 2, (be - j) / 2);
-            let mut in_first_half = None;
-            let mut any = None;
+            let (mut in_first_half, mut last_solid, mut any) = (None, None, None);
             for (k, &(oi, ol, ni, nl, same)) in parts.iter().enumerate() {
                 if same {
                     any = Some(k + 1);
-                    if oi + ol <= half_a.max(1) && ni + nl <= half_b.max(1) {
-                        in_first_half = Some(k + 1);
+                    if ol >= SOLID {
+                        last_solid = Some(k + 1);
+                        if oi + ol <= half_a.max(1) && ni + nl <= half_b.max(1) {
+                            in_first_half = Some(k + 1);
+                        }
                     }
                 }
             }
-            in_first_half.or(any).unwrap_or(0)
+            in_first_half.or(last_solid).or(any).unwrap_or(0)
         };
 
         if keep == 0 {
@@ -1070,6 +1166,175 @@ mod tests {
         let s = c.summary();
         assert_eq!((s.blocks, s.changed, s.added, s.removed), (3, 1, 15_000, 1));
         assert_eq!(c.nav(11, 1).unwrap().row, 30_001);
+    }
+
+    fn counts(c: &Comparison) -> (u32, u64, u64, u64) {
+        let s = c.summary();
+        (s.blocks, s.changed, s.added, s.removed)
+    }
+
+    /// Lines that look like program code: many repeated blank lines and "}" lines.
+    fn code_like(prefix: &str, n: usize) -> Vec<String> {
+        (0..n)
+            .map(|i| match i % 7 {
+                0 => "\n".to_string(),
+                3 => "}\n".to_string(),
+                _ => format!("{prefix} {i}\n"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn big_insert_bigger_than_a_window() {
+        let a: Vec<String> = (0..60_000).map(|i| format!("line {i}\n")).collect();
+        let mut b = a.clone();
+        let extra: Vec<String> = (0..25_000).map(|i| format!("inserted {i}\n")).collect();
+        b.splice(30_000..30_000, extra);
+        let c = cmp(&a.concat(), &b.concat(), Options::default());
+        assert_eq!(counts(&c), (1, 0, 25_000, 0));
+        // the lines after the insertion line up again
+        let row = c.rows(55_000, 1).unwrap();
+        assert_eq!(row[0].k, 0);
+        assert_eq!(text(&row[0].l), "line 30000");
+        assert_eq!(text(&row[0].r), "line 30000");
+    }
+
+    #[test]
+    fn big_delete_bigger_than_a_window() {
+        let a: Vec<String> = (0..60_000).map(|i| format!("line {i}\n")).collect();
+        let mut b = a.clone();
+        b.drain(10_000..35_000);
+        let c = cmp(&a.concat(), &b.concat(), Options::default());
+        assert_eq!(counts(&c), (1, 0, 0, 25_000));
+    }
+
+    #[test]
+    fn big_insert_at_the_start() {
+        let a: Vec<String> = (0..30_000).map(|i| format!("line {i}\n")).collect();
+        let mut b: Vec<String> = (0..21_000).map(|i| format!("header {i}\n")).collect();
+        b.extend(a.iter().cloned());
+        let c = cmp(&a.concat(), &b.concat(), Options::default());
+        assert_eq!(counts(&c), (1, 0, 21_000, 0));
+    }
+
+    #[test]
+    fn big_insert_in_code_with_repeated_lines() {
+        let a = code_like("old", 60_000);
+        let mut b = a.clone();
+        b.splice(30_002..30_002, code_like("new", 25_000));
+        let c = cmp(&a.concat(), &b.concat(), Options::default());
+        // Repeated lines like "}" must not split it into pieces: it is one added block.
+        assert_eq!(counts(&c), (1, 0, 25_000, 0));
+    }
+
+    #[test]
+    fn two_completely_different_files() {
+        let a: Vec<String> = (0..50_000).map(|i| format!("left {i}\n")).collect();
+        let b: Vec<String> = (0..45_000).map(|i| format!("right {i}\n")).collect();
+        let c = cmp(&a.concat(), &b.concat(), Options::default());
+        assert_eq!(counts(&c), (1, 45_000, 0, 5_000));
+    }
+
+    /// Checks that hold for any comparison: every line of both files is shown once, in order,
+    /// and rows marked "same" really show matching lines.
+    fn check_rows(c: &Comparison, a: &[&str], b: &[&str], ignore_blank: bool) {
+        let rows = c.rows(0, c.summary().total_rows as u32 + 1).unwrap();
+        assert_eq!(rows.len() as u64, c.summary().total_rows);
+        let left: Vec<u32> = rows.iter().filter_map(|r| r.l.as_ref().map(|c| c.n)).collect();
+        let right: Vec<u32> = rows.iter().filter_map(|r| r.r.as_ref().map(|c| c.n)).collect();
+        assert_eq!(left, (1..=a.len() as u32).collect::<Vec<_>>());
+        assert_eq!(right, (1..=b.len() as u32).collect::<Vec<_>>());
+        for r in &rows {
+            match (&r.l, &r.r) {
+                (Some(l), Some(rr)) if r.k == 0 => assert_eq!(a[l.n as usize - 1], b[rr.n as usize - 1]),
+                (Some(l), None) if r.k == 0 => assert!(ignore_blank && a[l.n as usize - 1].is_empty()),
+                (None, Some(rr)) if r.k == 0 => assert!(ignore_blank && b[rr.n as usize - 1].is_empty()),
+                (Some(l), _) if r.k != 0 && ignore_blank => assert!(!a[l.n as usize - 1].is_empty()),
+                _ => {}
+            }
+            if r.k != 0 && ignore_blank {
+                if let Some(rr) = &r.r {
+                    assert!(!b[rr.n as usize - 1].is_empty());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn random_files_always_show_every_line_in_order() {
+        // A small fixed random generator, so the test is the same every run.
+        let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+        let mut rnd = |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % n
+        };
+        let words = ["", "a", "b", "c", "}", "x y", "d"];
+        for round in 0..400 {
+            let a: Vec<&str> = (0..rnd(30)).map(|_| words[rnd(7) as usize]).collect();
+            let mut b = a.clone();
+            for _ in 0..rnd(6) {
+                let at = rnd(b.len() as u64 + 1) as usize;
+                match rnd(3) {
+                    0 => b.insert(at, words[rnd(7) as usize]),
+                    1 if at < b.len() => {
+                        b.remove(at);
+                    }
+                    _ if at < b.len() => b[at] = words[rnd(7) as usize],
+                    _ => {}
+                }
+            }
+            let join = |v: &[&str]| v.iter().map(|l| format!("{l}\n")).collect::<String>();
+            for ignore_blank in [false, true] {
+                let o = Options { ignore_blank_lines: ignore_blank, ..Default::default() };
+                let c = cmp(&join(&a), &join(&b), o);
+                check_rows(&c, &a, &b, ignore_blank);
+                if ignore_blank {
+                    // Same numbers as comparing the files with their blank lines taken out.
+                    let fa: Vec<&str> = a.iter().copied().filter(|l| !l.is_empty()).collect();
+                    let fb: Vec<&str> = b.iter().copied().filter(|l| !l.is_empty()).collect();
+                    let f = cmp(&join(&fa), &join(&fb), Options::default());
+                    let (s, t) = (c.summary(), f.summary());
+                    assert_eq!((s.changed, s.added, s.removed), (t.changed, t.added, t.removed), "round {round}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn big_changes_always_show_every_line_in_order() {
+        let a: Vec<String> = code_like("line", 70_000);
+        let mut b = a.clone();
+        b.splice(5_000..5_000, code_like("first", 30_000));
+        b.drain(60_000..85_000);
+        b.splice(70_000..70_000, code_like("second", 45_000));
+        let ar: Vec<&str> = a.iter().map(|l| l.trim_end_matches('\n')).collect();
+        let br: Vec<&str> = b.iter().map(|l| l.trim_end_matches('\n')).collect();
+        let c = cmp(&a.concat(), &b.concat(), Options::default());
+        check_rows(&c, &ar, &br, false);
+        assert_eq!(counts(&c), (3, 0, 75_000, 25_000));
+    }
+
+    #[test]
+    fn ignore_blank_lines_inside_a_change() {
+        let o = Options { ignore_blank_lines: true, ..Default::default() };
+        let c = cmp("a\nX\n\n\n\nY\nz\n", "a\nP\nQ\nz\n", o);
+        // X→P and Y→Q, with the (ignored) blank lines between them
+        assert_eq!(counts(&c), (2, 2, 0, 0));
+        let rows = c.rows(0, 20).unwrap();
+        // X lines up with P, Y with Q
+        let x = rows.iter().find(|r| text(&r.l) == "X").unwrap();
+        assert_eq!(text(&x.r), "P");
+        let y = rows.iter().find(|r| text(&r.l) == "Y").unwrap();
+        assert_eq!(text(&y.r), "Q");
+        // every line of both files is still shown, in order
+        let left: Vec<u32> = rows.iter().filter_map(|r| r.l.as_ref().map(|c| c.n)).collect();
+        let right: Vec<u32> = rows.iter().filter_map(|r| r.r.as_ref().map(|c| c.n)).collect();
+        assert_eq!(left, (1..=7).collect::<Vec<u32>>());
+        assert_eq!(right, vec![1, 2, 3, 4]);
+        // the blank lines are not shown as differences
+        assert!(rows.iter().filter(|r| r.k != 0).all(|r| !text(&r.l).is_empty() || r.l.is_none()));
     }
 
     #[test]
