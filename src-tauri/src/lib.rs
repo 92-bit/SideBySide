@@ -17,6 +17,9 @@ struct AppState {
     current: Mutex<Option<Arc<Comparison>>>,
     /// The progress bar and Cancel switch of the comparison that is running (or ran last).
     control: Mutex<Arc<Control>>,
+    /// The stop switch of the search that is running (or ran last). It is separate from the
+    /// comparison's switch, so a cancelled comparison can't break searching in the one on screen.
+    search: Mutex<Arc<Control>>,
     /// Goes up on every new comparison, so an older, slower one can't overwrite a newer one.
     generation: AtomicU64,
     /// Files handed to the app (when it starts, or later from the right-click menu)
@@ -39,6 +42,14 @@ fn current(state: &AppState) -> Option<Arc<Comparison>> {
 
 fn control(state: &AppState) -> Arc<Control> {
     state.control.lock().map(|c| c.clone()).unwrap_or_default()
+}
+
+/// Stop the search that is running, if any, and put `next` in its place.
+fn replace_search(state: &AppState, next: Arc<Control>) {
+    if let Ok(mut s) = state.search.lock() {
+        s.cancel.store(true, Ordering::SeqCst);
+        *s = next;
+    }
 }
 
 #[tauri::command]
@@ -64,6 +75,8 @@ async fn compare(
         return Err("__stale__".into());
     }
     let summary = result.summary();
+    // A search in the old result is no longer needed.
+    replace_search(&state, Arc::default());
     *state.current.lock().map_err(|_| "busy")? = Some(Arc::new(result));
     Ok(summary)
 }
@@ -110,7 +123,9 @@ async fn find(
     match_case: bool,
 ) -> Result<Option<u64>, String> {
     let c = current(&state).ok_or("Nothing to search")?;
-    let ctl = control(&state);
+    // Each search gets its own fresh stop switch (a new search stops the one before).
+    let ctl = Arc::new(Control::default());
+    replace_search(&state, ctl.clone());
     tauri::async_runtime::spawn_blocking(move || c.find(&query, from, forward, match_case, &ctl))
         .await
         .map_err(|e| e.to_string())?

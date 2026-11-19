@@ -1,6 +1,10 @@
 <script lang="ts">
   // Compare two pieces of text without saving them as files first.
-  let { onCompare, onBack }: { onCompare: (original: string, changed: string) => void; onBack: () => void } = $props();
+  let {
+    onCompare,
+    onBack,
+    error = null,
+  }: { onCompare: (original: string, changed: string) => void; onBack: () => void; error?: string | null } = $props();
 
   let original = $state('');
   let changed = $state('');
@@ -24,7 +28,9 @@
   </div>
   <div class="actions">
     <button type="button" class="ghost" onclick={onBack}>← Use files instead</button>
-    <span class="grow"></span>
+    <span class="grow">
+      {#if error}<span class="error" role="alert">{error}</span>{/if}
+    </span>
     <button type="button" class="primary" disabled={!original && !changed} onclick={() => onCompare(original, changed)}>Compare</button>
   </div>
 </section>
@@ -77,6 +83,12 @@
   }
   .grow {
     flex: 1;
+    text-align: center;
+    padding: 0 12px;
+  }
+  .error {
+    font-size: 13px;
+    color: var(--error);
   }
   button {
     font: inherit;

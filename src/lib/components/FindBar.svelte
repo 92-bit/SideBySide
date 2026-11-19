@@ -26,13 +26,18 @@
   let line = $state('');
   let side = $state<'left' | 'right'>('left');
 
-  // Put the cursor in the box whenever the bar opens or switches mode.
-  $effect(() => {
-    void mode;
+  /** Put the cursor in the box (also called when Ctrl+F / Ctrl+G is pressed while the bar is open). */
+  export function focus() {
     queueMicrotask(() => {
       input?.focus();
       input?.select();
     });
+  }
+
+  // Put the cursor in the box whenever the bar opens or switches mode.
+  $effect(() => {
+    void mode;
+    focus();
   });
 
   async function doFind(forward: boolean) {
@@ -45,7 +50,9 @@
   }
 
   async function doGoto() {
-    const n = Number.parseInt(line, 10);
+    // Allow "500,000", "500.000" and "500 000" (the app shows big numbers with commas).
+    const digits = line.trim().replace(/[\s,.'’]/g, '');
+    const n = /^\d+$/.test(digits) ? Number(digits) : NaN;
     const max = side === 'left' ? maxLeft : maxRight;
     if (!(n >= 1 && n <= max)) {
       status = `Type a number from 1 to ${max.toLocaleString('en-US')}`;
