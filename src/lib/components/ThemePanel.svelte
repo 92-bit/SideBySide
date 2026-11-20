@@ -11,6 +11,7 @@
     setCodeFont,
     setFontSize,
     setSpacing,
+    setWrap,
   } from '#lib/prefs.svelte.ts';
   import { FONT_DEFAULT, FONT_MAX, FONT_MIN } from '#lib/settings.ts';
 
@@ -113,6 +114,13 @@
         />
         <button type="button" class="step" aria-label="Bigger text" disabled={prefs.fontSize >= FONT_MAX} onclick={() => setFontSize(prefs.fontSize + 1)}>+</button>
         <button type="button" class="val" title="Back to the normal size" onclick={() => setFontSize(FONT_DEFAULT)}>{Math.round((prefs.fontSize / FONT_DEFAULT) * 100)}%</button>
+      </div>
+    </div>
+    <div class="row">
+      <span class="lbl">Long lines</span>
+      <div class="modes" role="group" aria-label="Long lines">
+        <button type="button" aria-pressed={!prefs.wrap} onclick={() => setWrap(false)}>Scroll sideways</button>
+        <button type="button" aria-pressed={prefs.wrap} onclick={() => setWrap(true)}>Wrap</button>
       </div>
     </div>
     <div class="row">

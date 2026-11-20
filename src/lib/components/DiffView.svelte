@@ -71,7 +71,21 @@
   const lnW = $derived(Math.round(charW * 0.92 * digits + 22));
   const total = $derived(summary.totalRows);
   const visible = $derived(Math.max(1, Math.floor(height / rowH)));
-  const maxTop = $derived(Math.max(0, total - visible));
+  // Word wrap: rows can be several lines tall, so fewer of them fit; their real sizes are measured.
+  const wrap = $derived(prefs.wrap);
+  let boxes = $state<{ top: number; h: number }[]>([]);
+  $effect(() => {
+    void rows, wrap, fontSize, width, height, inline;
+    if (!wrap) return;
+    tick().then(() => {
+      if (!viewport) return;
+      boxes = [...viewport.querySelectorAll<HTMLElement>('.row')].map((el) => ({ top: el.offsetTop, h: el.offsetHeight }));
+    });
+  });
+  /** Rows that fit on the screen completely (with wrap, fewer than `visible`). */
+  const fitting = $derived(wrap ? Math.max(1, boxes.filter((b) => b.top + b.h <= height).length) : visible);
+  // With wrap, the last row can be scrolled to the top (the rows below it may be tall).
+  const maxTop = $derived(Math.max(0, wrap ? total - 1 : total - visible));
   const thumbH = $derived(height ? Math.max(28, Math.min(height, (height * visible) / Math.max(total, 1))) : 0);
   const thumbY = $derived(maxTop ? (top / maxTop) * (height - thumbH) : 0);
   // How far the text can scroll sideways. The widths are measured on screen, so tabs and
@@ -89,7 +103,7 @@
       paneW = tx ? tx.clientWidth - 12 : 0; // minus the padding on the left
     });
   });
-  const maxX = $derived(Math.max(0, longestPx - paneW + 24));
+  const maxX = $derived(wrap ? 0 : Math.max(0, longestPx - paneW + 24));
   // Shorter lines on screen, a wider window or a smaller zoom: don't stay scrolled past the end.
   $effect(() => {
     if (longestPx && scrollX > maxX) scrollX = maxX; // (not before the lines have been measured)
@@ -173,7 +187,7 @@
 
   /** Scroll so `row` is on screen, and briefly mark it. */
   export function reveal(row: number, mark = true) {
-    if (row < top || row >= top + visible) setTop(row - Math.floor(visible / 3));
+    if (row < top || row >= top + fitting) setTop(row - Math.floor(fitting / 3));
     if (mark) flashRow = row;
   }
   export function getTop() {
@@ -270,12 +284,20 @@
     const a = Math.max(current.row - rowsTop, -1);
     const b = Math.min(current.row + current.rows - rowsTop, visible + 1);
     if (b <= a || b < 0 || a > visible) return null;
+    if (wrap) {
+      // Rows have their own heights: use the measured ones.
+      const first = boxes[Math.max(a, 0)];
+      const last = boxes[Math.min(b, boxes.length) - 1];
+      if (!first || !last) return null;
+      const y = a < 0 ? -rowH : first.top;
+      return { y, h: last.top + last.h - y };
+    }
     return { y: a * rowH, h: (b - a) * rowH };
   });
 
   async function go(hit: Hit | null, animate = false) {
     if (!hit) return;
-    const onScreen = hit.row >= top && hit.row + Math.min(hit.rows, visible) <= top + visible;
+    const onScreen = hit.row >= top && hit.row + Math.min(hit.rows, fitting) <= top + fitting;
     lensSlide = animate && onScreen && current !== null;
     // Once it has slid, scrolling by hand moves the frame with the text again.
     if (lensSlide) setTimeout(() => (lensSlide = false), 320);
@@ -283,7 +305,7 @@
     current = hit;
     flashRow = null;
     onCurrent(hit);
-    if (!onScreen) setTop(hit.row - Math.min(3, Math.floor(visible / 4)));
+    if (!onScreen) setTop(hit.row - Math.min(3, Math.floor(fitting / 4)));
   }
   // One step at a time: pressing F8 twice quickly moves two differences, not one.
   let steps: Promise<void> = Promise.resolve();
@@ -391,8 +413,8 @@
     const moves: Record<string, () => void> = {
       ArrowDown: () => setTop(top + 1),
       ArrowUp: () => setTop(top - 1),
-      PageDown: () => setTop(top + visible - 1),
-      PageUp: () => setTop(top - visible + 1),
+      PageDown: () => setTop(top + Math.max(1, fitting - 1)),
+      PageUp: () => setTop(top - Math.max(1, fitting - 1)),
       Home: () => setTop(0),
       End: () => setTop(maxTop),
       ArrowRight: () => setX(scrollX + charW * 8),
@@ -473,7 +495,7 @@
 {#snippet inlineText(m: { cell: Cell; kinds: Kind[] }, lang: string | null)}{#each runs(m.cell, lang) as s, n}{#if m.kinds[n] === 'del'}<del>{@render bits(s.bits)}</del>{:else if m.kinds[n] === 'ins'}<ins>{@render bits(s.bits)}</ins>{:else}{@render bits(s.bits)}{/if}{/each}{/snippet}
 {#snippet cellText(c: Cell, lang: string | null)}{#each runs(c, lang) as s}{#if s.h}<mark>{@render bits(s.bits)}</mark>{:else}{@render bits(s.bits)}{/if}{/each}{/snippet}
 
-<div class="view" class:inline bind:clientHeight={height} bind:clientWidth={width} style:--fs="{fontSize}px" style:--rh="{rowH}px" style:--lnw="{lnW}px">
+<div class="view" class:inline class:wrap bind:clientHeight={height} bind:clientWidth={width} style:--fs="{fontSize}px" style:--rh="{rowH}px" style:--lnw="{lnW}px">
   <!-- The rows area is focusable so the arrow keys and Page Up/Down can scroll it. -->
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div class="rows" id="rows" bind:this={viewport} tabindex="0" role="region" aria-label="Differences">
@@ -799,6 +821,31 @@
       transform: scale(0.6);
       opacity: 0;
     }
+  }
+
+  /* ---- Word wrap: long lines continue on the next line ---- */
+  .wrap .row {
+    height: auto;
+    min-height: var(--rh);
+  }
+  .wrap .in {
+    display: block;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    transform: none !important;
+  }
+  .wrap .tx {
+    padding-right: 10px;
+  }
+  /* (a button centres its text; in a tall row the number belongs at the top) */
+  .wrap button.ln {
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+  }
+  .wrap .seam {
+    place-items: start center;
+    padding-top: calc((var(--rh) - 12px) / 2);
   }
 
   /* ---- Inline view: one card, two line-number columns ---- */

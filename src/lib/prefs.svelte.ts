@@ -7,6 +7,7 @@ const SPACING_KEY = 'sbs-line-spacing';
 const TIDY_KEY = 'sbs-tidy';
 const FOLD_KEY = 'sbs-fold';
 const INLINE_KEY = 'sbs-inline';
+const WRAP_KEY = 'sbs-wrap';
 
 function read(key: string): string | null {
   try {
@@ -57,7 +58,14 @@ export const prefs = $state({
   fold: read(FOLD_KEY) === 'on',
   /** One column (inline) instead of side by side. */
   inline: read(INLINE_KEY) === 'on',
+  /** Long lines continue on the next line instead of running off to the side. */
+  wrap: read(WRAP_KEY) === 'on',
 });
+
+export function setWrap(on: boolean) {
+  prefs.wrap = on;
+  write(WRAP_KEY, on ? 'on' : 'off');
+}
 
 export function setInline(on: boolean) {
   prefs.inline = on;
