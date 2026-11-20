@@ -19,6 +19,7 @@
   import UrlDialog from '#lib/components/UrlDialog.svelte';
   import FolderView from '#lib/components/FolderView.svelte';
   import ThreeView from '#lib/components/ThreeView.svelte';
+  import ImageView from '#lib/components/ImageView.svelte';
   import { activeRules, loadRules, saveRules, type RulesConfig } from '#lib/rules.ts';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { getVersion } from '@tauri-apps/api/app';
@@ -40,6 +41,7 @@
     copyBlock,
     compareFolders,
     compareThree,
+    isImage,
     type Summary3,
     isFolder,
     type FolderResult,
@@ -200,6 +202,19 @@
   async function run(quiet = false, restore: Session | null = null): Promise<boolean> {
     const { left, right } = paths;
     if (!left || !right) return false;
+    // Two pictures: the image view (no text to compare).
+    if (isImage(left) && isImage(right)) {
+      if (quiet) return false;
+      runId++;
+      closeCompare();
+      summary = null;
+      error = null;
+      pasteMode = false;
+      images = { left, right };
+      recent = addRecent(left, right);
+      return true;
+    }
+    images = null;
     const id = ++runId;
     const used = { ...ignore };
     if (quiet) {
@@ -299,6 +314,8 @@
     folders?: FolderResult | null;
     /** A three-way comparison: compared again when shown. */
     three?: [string, string, string] | null;
+    /** Two pictures. */
+    images?: { left: string; right: string } | null;
   }
   let tabs = $state<Tab[]>([{ id: 1, session: null }]);
   let activeTab = $state(1);
@@ -319,7 +336,10 @@
   const nameOf = (p: string) => (isPasted(p) ? 'Pasted text' : fileName(p));
   const folderPair = (f: FolderResult) => `${fileName(f.left)} ↔ ${fileName(f.right)} (folders)`;
   const threeTitle = (p: [string, string, string]) => `${fileName(p[1])} | ${fileName(p[0])} | ${fileName(p[2])}`;
+  const imagePair = (p: { left: string; right: string }) => `${fileName(p.left)} ↔ ${fileName(p.right)} (pictures)`;
   function tabTitle(t: Tab): string {
+    if (t.id === activeTab && images) return imagePair(images);
+    if (t.id !== activeTab && t.images) return imagePair(t.images);
     if (t.id === activeTab && threePaths) return threeTitle(threePaths);
     if (t.id !== activeTab && t.three) return threeTitle(t.three);
     if (t.id === activeTab && folders && !summary) return folderPair(folders);
@@ -330,11 +350,21 @@
     }
     return t.session ? `${nameOf(t.session.left)} ↔ ${nameOf(t.session.right)}` : 'New comparison';
   }
-  async function showSession(s: Session | null, f: FolderResult | null = null, t: [string, string, string] | null = null) {
+  async function showSession(
+    s: Session | null,
+    f: FolderResult | null = null,
+    t: [string, string, string] | null = null,
+    img: { left: string; right: string } | null = null,
+  ) {
     closeAll();
     pasteMode = false;
     recentOpen = false;
     folders = f;
+    if (img) {
+      paths = { ...img };
+      run();
+      return;
+    }
     if (t) {
       runThree(...t);
       return;
@@ -348,15 +378,15 @@
   async function switchTab(id: number) {
     if (id === activeTab || !(await askToSave())) return;
     const cur = tabs.find((t) => t.id === activeTab);
-    if (cur) [cur.session, cur.folders, cur.three] = [captureSession(), summary ? null : folders, threePaths];
+    if (cur) [cur.session, cur.folders, cur.three, cur.images] = [captureSession(), summary ? null : folders, threePaths, images];
     activeTab = id;
     const next = tabs.find((t) => t.id === id);
-    await showSession(next?.session ?? null, next?.folders ?? null, next?.three ?? null);
+    await showSession(next?.session ?? null, next?.folders ?? null, next?.three ?? null, next?.images ?? null);
   }
   async function newTab() {
     if (!(await askToSave())) return;
     const cur = tabs.find((t) => t.id === activeTab);
-    if (cur) [cur.session, cur.folders, cur.three] = [captureSession(), summary ? null : folders, threePaths];
+    if (cur) [cur.session, cur.folders, cur.three, cur.images] = [captureSession(), summary ? null : folders, threePaths, images];
     const id = ++tabSeq;
     tabs.push({ id, session: null });
     activeTab = id;
@@ -375,7 +405,7 @@
     if (id === activeTab) {
       const next = tabs[Math.min(i, tabs.length - 1)];
       activeTab = next.id;
-      await showSession(next.session, next.folders ?? null, next.three ?? null);
+      await showSession(next.session, next.folders ?? null, next.three ?? null, next.images ?? null);
     }
   }
   function stepTab(d: 1 | -1) {
@@ -433,6 +463,9 @@
     if (!b) return;
     runThree(o, a, b);
   }
+
+  // ---- Pictures ----
+  let images = $state<{ left: string; right: string } | null>(null);
 
   // ---- Folders ----
   let folders = $state<FolderResult | null>(null);
@@ -560,6 +593,7 @@
   function closeAll() {
     runId++;
     folders = null;
+    images = null;
     threeSum = null;
     threePaths = null;
     ranges = { left: null, right: null };
@@ -1172,6 +1206,8 @@
               onFilesChanged={() => (filesChanged = true)}
             />
           {/key}
+        {:else if images}
+          <ImageView left={images.left} right={images.right} />
         {:else if threeSum}
           {#key threeSum}
             <ThreeView

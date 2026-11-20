@@ -255,6 +255,35 @@ fn three_nav(state: tauri::State<'_, AppState>, row: u64, dir: i32) -> Option<Hi
     three(&state)?.nav(row, dir)
 }
 
+/// An image file as a "data:" link the screen can show (for comparing images).
+#[tauri::command]
+async fn image_data(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use base64::Engine;
+        let p = Path::new(&path);
+        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let size = std::fs::metadata(p).map_err(|e| format!("Could not open \"{name}\": {e}"))?.len();
+        if size > 200 << 20 {
+            return Err(format!("\"{name}\" is bigger than 200 MB, too big to show as a picture."));
+        }
+        let ext = p.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+        let mime = match ext.as_str() {
+            "jpg" | "jpeg" | "jfif" => "image/jpeg",
+            "gif" => "image/gif",
+            "bmp" => "image/bmp",
+            "webp" => "image/webp",
+            "ico" => "image/x-icon",
+            "avif" => "image/avif",
+            "svg" => "image/svg+xml",
+            _ => "image/png",
+        };
+        let bytes = std::fs::read(p).map_err(|e| format!("Could not open \"{name}\": {e}"))?;
+        Ok(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Is this a folder? (For dropped or picked paths.)
 #[tauri::command]
 fn is_folder(path: String) -> bool {
@@ -770,6 +799,7 @@ pub fn run() {
             three_rows,
             three_nav,
             is_folder,
+            image_data,
             edit_line,
             undo_redo,
             save_edits,

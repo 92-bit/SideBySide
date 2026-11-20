@@ -153,6 +153,12 @@ export const compareThree = (original: string, a: string, b: string, options: Op
 export const threeRows = (start: number, count: number) => invoke<Row3[]>('three_rows', { start, count });
 export const threeNav = (row: number, dir: number) => invoke<Hit | null>('three_nav', { row, dir });
 
+// ---- Images ----
+/** File types shown as pictures (compared with the image view, not as text). */
+export const isImage = (path: string) => /\.(png|jpe?g|jfif|gif|bmp|webp|ico|avif)$/i.test(path);
+/** An image file as a "data:" link. */
+export const imageData = (path: string) => invoke<string>('image_data', { path });
+
 // ---- Editing and merging ----
 /** Which files have unsaved changes, and whether Undo / Redo can do anything. */
 export interface EditState {
