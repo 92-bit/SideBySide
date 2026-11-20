@@ -88,6 +88,8 @@
   let liveProblem = $state<string | null>(null);
   /** Where the view was before a live update, so it stays there afterwards. */
   let keepPlace = $state<{ top: number; x: number; atEnd: boolean } | null>(null);
+  /** Bookmarked rows of the comparison on screen (F2 / Shift+F2 jump between them). */
+  let bookmarks = $state<number[]>([]);
   /** Set when the daily check found a newer version. */
   let newVersion = $state<UpdateInfo | null>(null);
 
@@ -180,8 +182,10 @@
         liveProblem = null;
         if (quiet) {
           updatedAt = new Date();
+          bookmarks = bookmarks.filter((b) => b < s.totalRows); // (kept: a growing log keeps its rows)
         } else {
           updatedAt = null;
+          bookmarks = [];
           pasteMode = false;
           if (!isPasted(left)) recent = addRecent(left, right);
         }
@@ -259,6 +263,7 @@
     current = null;
     error = null;
     findMode = null;
+    bookmarks = [];
     paths = { left: null, right: null };
     closeCompare();
   }
@@ -552,6 +557,7 @@
               }}
               onZoom={zoom}
               place={keepPlace}
+              bind:bookmarks
               onFilesChanged={() => (filesChanged = true)}
             />
           {/key}

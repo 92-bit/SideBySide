@@ -16,6 +16,7 @@
     onZoom,
     onFilesChanged,
     place = null,
+    bookmarks = $bindable([]),
   }: {
     summary: Summary;
     fontSize?: number;
@@ -27,6 +28,8 @@
     onFilesChanged?: () => void;
     /** After a live update: where the view was before (see getPlace). */
     place?: { top: number; x: number; atEnd: boolean } | null;
+    /** Bookmarked screen rows (kept by the page, so they survive live updates). */
+    bookmarks?: number[];
   } = $props();
 
   const MAP_W = 14;
@@ -168,6 +171,27 @@
     return top;
   }
   /** Where the view is, so a live update can keep it there. */
+  // ---- Bookmarks ----
+  const marked = $derived(new Set(bookmarks));
+  /** The bookmark last jumped to (F2 / Shift+F2 carry on from there while it is on screen). */
+  let lastMark: number | null = null;
+  function toggleMark(row: number) {
+    bookmarks = marked.has(row) ? bookmarks.filter((b) => b !== row) : [...bookmarks, row].sort((a, b) => a - b);
+  }
+  /** Ctrl+B: the line in the middle of the screen. */
+  export function toggleMarkHere() {
+    toggleMark(Math.min(total - 1, top + Math.floor(visible / 2)));
+  }
+  function jumpMark(dir: 1 | -1) {
+    if (!bookmarks.length) return;
+    const onScreen = lastMark !== null && lastMark >= top && lastMark < top + visible;
+    const from = onScreen ? lastMark! : dir === 1 ? top - 1 : top + visible;
+    const list = bookmarks;
+    // The next one in that direction, or round to the first / last.
+    const to = dir === 1 ? (list.find((b) => b > from) ?? list[0]) : ([...list].reverse().find((b) => b < from) ?? list[list.length - 1]);
+    lastMark = to;
+    reveal(to);
+  }
   export function getPlace() {
     return { top, x: scrollX, atEnd: top >= maxTop };
   }
@@ -318,6 +342,16 @@
   }
 
   function onGlobalKey(e: KeyboardEvent) {
+    if (e.key === 'F2') {
+      e.preventDefault();
+      jumpMark(e.shiftKey ? -1 : 1);
+      return;
+    }
+    if (e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'b') {
+      e.preventDefault();
+      toggleMarkHere();
+      return;
+    }
     if (e.key === 'F8' || (e.altKey && e.key === 'ArrowDown')) {
       e.preventDefault();
       next();
@@ -385,8 +419,8 @@
       {@const r = rowsTop + i}
       {@const starts = row.k !== 0 && (i === 0 ? r === 0 : rows[i - 1].k === 0) /* changed + added lines together are one difference */}
       {@const isCur = current !== null && r === current.row}
-      <div class="row k{row.k}" class:cur={current !== null && r >= current.row && r < current.row + current.rows} class:found={flashRow === r}>
-        <span class="ln">{row.l ? row.l.n : ''}</span>
+      <div class="row k{row.k}" class:bm={marked.has(r)} class:cur={current !== null && r >= current.row && r < current.row + current.rows} class:found={flashRow === r}>
+        <button type="button" class="ln" tabindex="-1" title="{marked.has(r) ? 'Remove the bookmark' : 'Bookmark this line (Ctrl+B)'}" onclick={() => toggleMark(r)}>{row.l ? row.l.n : ''}</button>
         <span class="tx" class:fill={!row.l}>{#if row.l}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.l, langL)}</span>{/if}</span>
         <span class="seam">
           {#if starts}
@@ -400,7 +434,7 @@
             >{isCur ? (current?.index ?? 0) + 1 : ''}</button>
           {/if}
         </span>
-        <span class="ln r">{row.r ? row.r.n : ''}</span>
+        <button type="button" class="ln r" tabindex="-1" title="{marked.has(r) ? 'Remove the bookmark' : 'Bookmark this line (Ctrl+B)'}" onclick={() => toggleMark(r)}>{row.r ? row.r.n : ''}</button>
         <span class="tx" class:fill={!row.r}>{#if row.r}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.r, langR)}</span>{/if}</span>
       </div>
     {/each}
@@ -426,6 +460,9 @@
     onpointerup={onMapUp}
   >
     <canvas bind:this={canvas} style:width="{MAP_W}px" style:height="{height}px"></canvas>
+    {#each bookmarks as b (b)}
+      <i class="mapmark" style:top="{(b / Math.max(total, 1)) * height}px" aria-hidden="true"></i>
+    {/each}
     <div class="thumb" style:top="{thumbY}px" style:height="{thumbH}px"></div>
   </div>
 </div>
@@ -482,6 +519,28 @@
   }
   .row > :last-child {
     margin-right: 1px;
+  }
+  button.ln {
+    border: 0;
+    margin: 0;
+    padding: 0 10px 0 0;
+    font: inherit;
+    font-size: 0.92em;
+    line-height: inherit;
+    background: none;
+    cursor: pointer;
+  }
+  button.ln:hover {
+    color: var(--t-strong);
+  }
+  /* A bookmarked line: a small ribbon at the left of both line numbers. */
+  .row.bm .ln {
+    color: var(--t-acc);
+    font-weight: 600;
+    background-image: linear-gradient(var(--t-acc), var(--t-acc));
+    background-size: 3px 70%;
+    background-position: 4px 50%;
+    background-repeat: no-repeat;
   }
   .ln {
     color: var(--t-faint);
@@ -673,6 +732,17 @@
   .map canvas {
     display: block;
     margin-left: -1px;
+  }
+  .mapmark {
+    position: absolute;
+    left: 1px;
+    right: 1px;
+    height: 3px;
+    margin-top: -1px;
+    border-radius: 2px;
+    background: var(--t-acc);
+    pointer-events: none;
+    z-index: 1;
   }
   .thumb {
     position: absolute;

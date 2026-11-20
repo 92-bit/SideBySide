@@ -15,6 +15,14 @@
       ],
     },
     {
+      title: 'Bookmarks',
+      items: [
+        [[['Ctrl', 'B']], 'Bookmark the line in the middle (or click a line number)'],
+        [[['F2']], 'Next bookmark'],
+        [[['Shift', 'F2']], 'Previous bookmark'],
+      ],
+    },
+    {
       title: 'Find',
       items: [
         [[['Ctrl', 'F']], 'Find text'],
