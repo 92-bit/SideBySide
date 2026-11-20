@@ -130,7 +130,12 @@
   const canInstall = $derived(!!install?.supported && !install.runningInstalled);
 
   // The seam between the two file cards: wide enough for the current difference's number ("12,345").
-  const seamW = $derived(summary ? Math.max(40, fmtNum(summary.blocks).length * 7 + 22) : 40);
+  // (wider when the files can be edited: the merge arrows sit beside the number)
+  const seamW = $derived(
+    summary
+      ? Math.max(40, fmtNum(summary.blocks).length * 7 + 22) + (summary.left.editable || summary.right.editable ? 48 : 0)
+      : 40,
+  );
 
   /** The folder part of a path, shortened to its last two folders. */
   function folderOf(p: string): string {
@@ -274,6 +279,84 @@
     }, 2000);
     return () => clearInterval(t);
   });
+  // ---- Tabs ----
+  // Only the tab on screen is held in memory; the others remember their files, options, place and
+  // bookmarks, and are compared again (quickly) when you switch to them. The strip shows from 2 tabs.
+  interface Tab {
+    id: number;
+    /** null: the start screen */
+    session: Session | null;
+  }
+  let tabs = $state<Tab[]>([{ id: 1, session: null }]);
+  let activeTab = $state(1);
+  let tabSeq = 1;
+  /** Everything needed to show the comparison on screen again later. */
+  function captureSession(): Session | null {
+    if (!summary) return null;
+    return {
+      left: summary.left.path,
+      right: summary.right.path,
+      ignore: { ...shownIgnore },
+      place: view?.getPlace() ?? null,
+      bookmarks: [...bookmarks],
+      sizes: [summary.left.size, summary.right.size],
+      ranges: { left: ranges.left, right: ranges.right },
+    };
+  }
+  const nameOf = (p: string) => (isPasted(p) ? 'Pasted text' : fileName(p));
+  function tabTitle(t: Tab): string {
+    if (t.id === activeTab) {
+      if (summary) return `${nameOf(summary.left.path)} ↔ ${nameOf(summary.right.path)}`;
+      return pasteMode ? 'Paste text' : 'New comparison';
+    }
+    return t.session ? `${nameOf(t.session.left)} ↔ ${nameOf(t.session.right)}` : 'New comparison';
+  }
+  async function showSession(s: Session | null) {
+    closeAll();
+    pasteMode = false;
+    recentOpen = false;
+    if (!s) return;
+    paths = { left: s.left, right: s.right };
+    ignore = { rules: false, ...s.ignore };
+    ranges = s.ranges ?? { left: null, right: null };
+    await run(false, s);
+  }
+  async function switchTab(id: number) {
+    if (id === activeTab || !(await askToSave())) return;
+    const cur = tabs.find((t) => t.id === activeTab);
+    if (cur) cur.session = captureSession();
+    activeTab = id;
+    await showSession(tabs.find((t) => t.id === id)?.session ?? null);
+  }
+  async function newTab() {
+    if (!(await askToSave())) return;
+    const cur = tabs.find((t) => t.id === activeTab);
+    if (cur) cur.session = captureSession();
+    const id = ++tabSeq;
+    tabs.push({ id, session: null });
+    activeTab = id;
+    await showSession(null);
+  }
+  async function closeTab(id: number) {
+    if (id === activeTab && !(await askToSave())) return;
+    const i = tabs.findIndex((t) => t.id === id);
+    if (tabs.length === 1) {
+      tabs[0].session = null;
+      await showSession(null);
+      return;
+    }
+    tabs.splice(i, 1);
+    if (id === activeTab) {
+      const next = tabs[Math.min(i, tabs.length - 1)];
+      activeTab = next.id;
+      await showSession(next.session);
+    }
+  }
+  function stepTab(d: 1 | -1) {
+    const i = tabs.findIndex((t) => t.id === activeTab);
+    switchTab(tabs[(i + d + tabs.length) % tabs.length].id);
+  }
+
   async function reopenLast() {
     const last = loadSession();
     if (!last) return;
@@ -603,6 +686,15 @@
     if (!(await askToSave())) return;
     pasteMode = false;
     recentOpen = false;
+    if (files.length >= 2 && summary) {
+      // A comparison is open: the new one gets its own tab.
+      const cur = tabs.find((t) => t.id === activeTab);
+      if (cur) cur.session = captureSession();
+      const id = ++tabSeq;
+      tabs.push({ id, session: null });
+      activeTab = id;
+      ranges = { left: null, right: null };
+    }
     if (files.length >= 2) {
       paths = { left: files[0], right: files[1] };
       run();
@@ -649,6 +741,9 @@
       if (redo ? edits.canRedo : edits.canUndo) undo(redo);
     }
     else if (k === 'l') urlOpen = true;
+    else if (k === 't') newTab();
+    else if (k === 'w' && (tabs.length > 1 || summary || pasteMode)) closeTab(activeTab);
+    else if (k === 'tab' && tabs.length > 1) stepTab(e.shiftKey ? -1 : 1);
     else return;
     e.preventDefault();
   }
@@ -742,7 +837,7 @@
 <div class="app">
   <TitleBar {look} onLook={pickLook} {onHelp}>
     {#snippet lead()}
-      <button type="button" class="lb" disabled={!summary && !paths.left && !paths.right && !pasteMode} onclick={newCompare} title="New comparison (closes this one)">
+      <button type="button" class="lb" onclick={newTab} title="New comparison in a new tab (Ctrl+T)">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg><span class="lbl">New</span>
       </button>
       <button type="button" class="lb" class:on={recentOpen} aria-pressed={recentOpen} disabled={!recent.length && !recentOpen} onclick={() => (recentOpen = !recentOpen)} title="Recent comparisons">
@@ -859,6 +954,20 @@
         <div class="note" role="alert">
           <span>A file was changed after it was compared, so the text shown may be out of date.</span>
           <button type="button" onclick={() => run()}>Compare again</button>
+        </div>
+      {/if}
+
+      {#if tabs.length > 1}
+        <div class="tabs" role="tablist" aria-label="Comparisons">
+          {#each tabs as t (t.id)}
+            <div class="tab" class:on={t.id === activeTab}>
+              <button type="button" role="tab" aria-selected={t.id === activeTab} onclick={() => switchTab(t.id)} title={tabTitle(t)}>
+                {#if t.id === activeTab && dirty}<span class="dot" aria-label="unsaved changes">●</span>{/if}{tabTitle(t)}
+              </button>
+              <button type="button" class="x" aria-label="Close this tab" title="Close (Ctrl+W)" onclick={() => closeTab(t.id)}>×</button>
+            </div>
+          {/each}
+          <button type="button" class="tabnew" aria-label="New tab" title="New tab (Ctrl+T)" onclick={newTab}>+</button>
         </div>
       {/if}
 
@@ -1688,6 +1797,91 @@
       transform 0.16s cubic-bezier(0.23, 1, 0.32, 1);
   }
   .change:hover {
+    color: var(--t-strong);
+  }
+  /* Tabs (from 2 comparisons on): a slim row of pills above the files. */
+  .tabs {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin: 6px 14px 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tab {
+    flex: 0 1 auto;
+    min-width: 90px;
+    max-width: 260px;
+    display: flex;
+    align-items: center;
+    height: 28px;
+    border-radius: 9px;
+    border: 1px solid transparent;
+    color: var(--t-muted);
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease;
+  }
+  .tab:hover {
+    background: var(--t-line);
+    color: var(--t-strong);
+  }
+  .tab.on {
+    background: var(--t-card);
+    border-color: var(--t-line2);
+    color: var(--t-strong);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  }
+  .tab button {
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .tab button[role='tab'] {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    padding: 0 4px 0 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+  }
+  .tab .dot {
+    color: var(--t-chg-s);
+    margin-right: 5px;
+  }
+  .tab .x {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    margin-right: 3px;
+    border-radius: 6px;
+    font-size: 15px;
+    line-height: 1;
+    opacity: 0.6;
+  }
+  .tab .x:hover {
+    opacity: 1;
+    background: var(--t-line2);
+  }
+  .tabnew {
+    flex: none;
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 9px;
+    background: none;
+    color: var(--t-muted);
+    font-size: 17px;
+    cursor: pointer;
+  }
+  .tabnew:hover {
+    background: var(--t-line);
     color: var(--t-strong);
   }
   .edited {

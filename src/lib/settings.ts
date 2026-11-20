@@ -100,6 +100,8 @@ export interface Session {
   bookmarks: number[];
   /** File sizes when it was saved: bookmarks only come back if the files are unchanged. */
   sizes: [number, number];
+  /** "Lines…": only part of a file was compared. */
+  ranges?: { left: [number, number] | null; right: [number, number] | null };
 }
 let lastSaved = '';
 export function saveSession(s: Session | null) {

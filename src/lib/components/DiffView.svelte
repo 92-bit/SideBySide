@@ -557,6 +557,10 @@
         <button type="button" class="ln" tabindex="-1" title="{marked.has(r) ? 'Remove the bookmark' : 'Bookmark this line (Ctrl+B)'}" onclick={() => toggleMark(r)}>{row.l ? row.l.n : ''}</button>
         <span class="tx" class:fill={!row.l} ondblclick={() => row.l && startEdit(r, true, row.l)} role="presentation">{#if editing && editing.row === r && editing.left}<input class="lineedit" bind:value={editing.text} use:focusOnMount onkeydown={(e) => { e.stopPropagation(); if (e.key === 'Enter') finishEdit(true); else if (e.key === 'Escape') finishEdit(false); }} onblur={() => finishEdit(false)} aria-label="Edit line {row.l?.n}" />{:else if row.l}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.l, langL)}</span>{:else if row.k === 6 && moveStart && row.m}<button type="button" class="moved-to" onclick={() => onGotoLine?.(true, row.m ?? 1)}>↖ moved here from line {fmtNum(row.m)}</button>{/if}</span>
         <span class="seam">
+          {#if starts && isCur && onCopy && (canEdit.left || canEdit.right)}
+            <!-- Merge: copy the current difference to the other side. -->
+            <button type="button" class="mg" tabindex="-1" disabled={!canEdit.left} onclick={() => onCopy?.(r, true)} title="Copy to the left: make the original match the new version here" aria-label="Copy to the left">←</button>
+          {/if}
           {#if starts}
             <button
               type="button"
@@ -567,19 +571,15 @@
               onclick={() => goToRow(r)}
             >{isCur ? (current?.index ?? 0) + 1 : ''}</button>
           {/if}
+          {#if starts && isCur && onCopy && (canEdit.left || canEdit.right)}
+            <button type="button" class="mg" tabindex="-1" disabled={!canEdit.right} onclick={() => onCopy?.(r, false)} title="Copy to the right: make the new version match the original here" aria-label="Copy to the right">→</button>
+          {/if}
         </span>
         <button type="button" class="ln r" tabindex="-1" title="{marked.has(r) ? 'Remove the bookmark' : 'Bookmark this line (Ctrl+B)'}" onclick={() => toggleMark(r)}>{row.r ? row.r.n : ''}</button>
         <span class="tx" class:fill={!row.r} ondblclick={() => row.r && startEdit(r, false, row.r)} role="presentation">{#if editing && editing.row === r && !editing.left}<input class="lineedit" bind:value={editing.text} use:focusOnMount onkeydown={(e) => { e.stopPropagation(); if (e.key === 'Enter') finishEdit(true); else if (e.key === 'Escape') finishEdit(false); }} onblur={() => finishEdit(false)} aria-label="Edit line {row.r?.n}" />{:else if row.r}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.r, langR)}</span>{:else if row.k === 5 && moveStart && row.m}<button type="button" class="moved-to" onclick={() => onGotoLine?.(false, row.m ?? 1)}>moved to line {fmtNum(row.m)} ↘</button>{/if}</span>
       </div>
       {/if}
     {/each}
-    {#if lens && current && onCopy && (canEdit.left || canEdit.right)}
-      <!-- Merge: copy the current difference to the other side. -->
-      <div class="mergebar" style:top="{lens.y >= 34 ? lens.y - 32 : lens.y + lens.h + 4}px">
-        <button type="button" disabled={!canEdit.left} onclick={() => current && onCopy?.(current.row, true)} title="Make the original match the new version here">← Copy to the left</button>
-        <button type="button" disabled={!canEdit.right} onclick={() => current && onCopy?.(current.row, false)} title="Make the new version match the original here">Copy to the right →</button>
-      </div>
-    {/if}
     {#if lens}
       {#key lensPop}
         <div class="lens" class:slide={lensSlide} class:pop={lensPop > 0} style:transform="translateY({lens.y}px)" style:height="{lens.h}px" aria-hidden="true"></div>
@@ -971,51 +971,46 @@
     box-shadow: 0 0 0 3px var(--t-acc-bg);
     user-select: text;
   }
-  .mergebar {
-    position: absolute;
-    left: 50%;
-    z-index: 3;
+  /* Merge arrows beside the current difference's number, in the gap between the files. */
+  .seam:has(.mg) {
     display: flex;
-    gap: 4px;
-    padding: 3px;
-    border-radius: 10px;
-    background: var(--t-card2);
+    justify-content: center;
+    align-items: center;
+    gap: 3px;
+  }
+  .mg {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    padding: 0;
     border: 1px solid var(--t-line2);
-    box-shadow: 0 8px 24px -10px rgba(0, 0, 0, 0.45);
-    transform: translateX(-50%);
-    font-family: var(--font-ui);
-    animation: merge-in 0.18s cubic-bezier(0.23, 1, 0.32, 1);
-  }
-  @keyframes merge-in {
-    from {
-      opacity: 0;
-      transform: translate(-50%, 3px);
-    }
-  }
-  .mergebar button {
-    height: 24px;
-    padding: 0 10px;
-    border: 0;
-    border-radius: 7px;
-    background: none;
-    color: var(--t-fg);
-    font: 500 12px var(--font-ui);
-    white-space: nowrap;
-    cursor: pointer;
-  }
-  .mergebar button:hover:not(:disabled) {
-    background: var(--t-acc-bg);
+    border-radius: 6px;
+    background: var(--t-card);
     color: var(--t-acc);
+    font: 600 12px/1 var(--font-ui);
+    cursor: pointer;
+    animation: mg-in 0.2s cubic-bezier(0.23, 1, 0.32, 1);
   }
-  .mergebar button:active:not(:disabled) {
-    transform: scale(0.97);
+  .mg:hover:not(:disabled) {
+    background: var(--t-acc);
+    color: var(--t-on-acc);
+    border-color: transparent;
   }
-  .mergebar button:disabled {
-    opacity: 0.4;
+  .mg:active:not(:disabled) {
+    transform: scale(0.92);
+  }
+  .mg:disabled {
+    opacity: 0.35;
     cursor: default;
   }
+  @keyframes mg-in {
+    from {
+      opacity: 0;
+      transform: scale(0.8);
+    }
+  }
   @media (prefers-reduced-motion: reduce) {
-    .mergebar {
+    .mg {
       animation: none;
     }
   }
