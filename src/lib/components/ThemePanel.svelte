@@ -3,7 +3,16 @@
   import { THEMES, type Palette } from '#lib/themes.ts';
   import { shadeOf, type Look, type Mode } from '#lib/theme.ts';
   import { trapFocus } from '#lib/trapFocus.ts';
-  import { prefs, setCodeColors } from '#lib/prefs.svelte.ts';
+  import {
+    CODE_FONTS,
+    SPACINGS,
+    prefs,
+    setCodeColors,
+    setCodeFont,
+    setFontSize,
+    setSpacing,
+  } from '#lib/prefs.svelte.ts';
+  import { FONT_DEFAULT, FONT_MAX, FONT_MIN } from '#lib/settings.ts';
 
   let {
     look,
@@ -77,6 +86,43 @@
         <span class="name">{t.name}</span>
       </button>
     {/each}
+  </div>
+  <div class="text">
+    <h3>Text in the files</h3>
+    <div class="fonts" role="group" aria-label="Font">
+      {#each CODE_FONTS as f (f.id)}
+        <button type="button" class="fo" aria-pressed={prefs.codeFont === f.id} title="{f.name} ({f.note})" onclick={() => setCodeFont(f.id)}>
+          <span class="sample" style:font-family={f.css} aria-hidden="true">{'{a: 0O}'}</span>
+          <span class="fn">{f.name}</span>
+        </button>
+      {/each}
+    </div>
+    <div class="row">
+      <span class="lbl" id="size-lbl">Size</span>
+      <div class="size">
+        <button type="button" class="step" aria-label="Smaller text" disabled={prefs.fontSize <= FONT_MIN} onclick={() => setFontSize(prefs.fontSize - 1)}>−</button>
+        <input
+          type="range"
+          min={FONT_MIN}
+          max={FONT_MAX}
+          step="1"
+          value={prefs.fontSize}
+          aria-labelledby="size-lbl"
+          aria-valuetext="{prefs.fontSize} pixels"
+          oninput={(e) => setFontSize(Number(e.currentTarget.value))}
+        />
+        <button type="button" class="step" aria-label="Bigger text" disabled={prefs.fontSize >= FONT_MAX} onclick={() => setFontSize(prefs.fontSize + 1)}>+</button>
+        <button type="button" class="val" title="Back to the normal size" onclick={() => setFontSize(FONT_DEFAULT)}>{Math.round((prefs.fontSize / FONT_DEFAULT) * 100)}%</button>
+      </div>
+    </div>
+    <div class="row">
+      <span class="lbl">Line spacing</span>
+      <div class="modes" role="group" aria-label="Line spacing">
+        {#each SPACINGS as sp (sp.id)}
+          <button type="button" aria-pressed={prefs.spacing === sp.id} onclick={() => setSpacing(sp.id)}>{sp.name}</button>
+        {/each}
+      </div>
+    </div>
   </div>
   <div class="foot">
     <button
@@ -261,6 +307,111 @@
     height: 7px;
     border-radius: 50%;
     background: var(--acc);
+  }
+  /* Text in the files: font, size and line spacing. */
+  .text {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--t-line);
+  }
+  .text h3 {
+    margin-bottom: 10px;
+  }
+  .fonts {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+  }
+  .fo {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    min-width: 0;
+    padding: 7px 8px 6px;
+    border-radius: 8px;
+    border: 1px solid var(--t-line2);
+    background: var(--t-card);
+    color: var(--t-fg);
+    cursor: pointer;
+    transition:
+      border-color 0.15s ease,
+      background-color 0.15s ease;
+  }
+  .fo:hover {
+    border-color: color-mix(in srgb, var(--t-acc) 50%, var(--t-line2));
+  }
+  .fo:active {
+    transform: scale(0.97);
+  }
+  .fo[aria-pressed='true'] {
+    border-color: var(--t-acc);
+    background: var(--t-acc-bg);
+  }
+  .sample {
+    font-size: 14px;
+    line-height: 1.2;
+    color: var(--t-strong);
+    white-space: nowrap;
+  }
+  .fn {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    color: var(--t-muted);
+  }
+  .fo[aria-pressed='true'] .fn {
+    color: var(--t-strong);
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .lbl {
+    font-size: 12px;
+    color: var(--t-fg);
+  }
+  .size {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .size input {
+    width: 130px;
+    accent-color: var(--t-acc);
+  }
+  .step,
+  .val {
+    border: 1px solid var(--t-line2);
+    background: var(--t-card);
+    color: var(--t-fg);
+    border-radius: 6px;
+    height: 24px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .step {
+    width: 24px;
+    padding: 0;
+  }
+  .step:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .val {
+    min-width: 46px;
+    padding: 0 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .step:not(:disabled):hover,
+  .val:hover {
+    background: var(--t-line);
+    color: var(--t-strong);
   }
   .foot {
     display: flex;

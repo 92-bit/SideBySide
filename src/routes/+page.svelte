@@ -39,16 +39,13 @@
   import { addRecent, clearRecent, fileName, loadRecent, removeRecent, type Recent } from '#lib/recent.ts';
   import {
     FONT_DEFAULT,
-    FONT_MAX,
-    FONT_MIN,
     loadAutoUpdate,
-    loadFontSize,
     loadLive,
     saveLive,
     markUpdateChecked,
-    saveFontSize,
     updateCheckDue,
   } from '#lib/settings.ts';
+  import { applyCodeFont, prefs, zoomStep } from '#lib/prefs.svelte.ts';
   import { changeLook, followSystem, loadLook, setLook, type Look } from '#lib/theme.ts';
 
   type SideName = 'left' | 'right';
@@ -77,7 +74,6 @@
   let query = $state('');
   let matchCase = $state(false);
   let lastFound: number | null = null;
-  let fontSize = $state(FONT_DEFAULT);
   let version = $state('');
   let install = $state<InstallInfo | null>(null);
   let installOpen = $state(false);
@@ -344,8 +340,7 @@
 
   // ---- Zoom ----
   function zoom(step: number) {
-    fontSize = step === 0 ? FONT_DEFAULT : Math.max(FONT_MIN, Math.min(FONT_MAX, fontSize + step));
-    saveFontSize(fontSize);
+    zoomStep(step);
   }
 
   // ---- Keyboard shortcuts ----
@@ -378,7 +373,7 @@
     setLook(look); // also saves the colours for app.html, so the next start shows them at once
     const stopFollowing = followSystem(() => look);
     recent = loadRecent();
-    fontSize = loadFontSize();
+    applyCodeFont();
     live = loadLive();
 
     getVersion().then((v) => (version = v));
@@ -548,7 +543,7 @@
             <DiffView
               bind:this={view}
               {summary}
-              {fontSize}
+              fontSize={prefs.fontSize}
               query={findMode === 'find' ? query : ''}
               {matchCase}
               onCurrent={(h) => {
@@ -692,7 +687,7 @@
       <button type="button" class="new-version" onclick={() => (aboutOpen = true)}>⬆ Version {newVersion.latest} is available</button>
     {/if}
     <button type="button" class="zoom" onclick={() => zoom(0)} title="Text size (Ctrl + mouse wheel, Ctrl +/-). Click to reset.">
-      {Math.round((fontSize / FONT_DEFAULT) * 100)}%
+      {Math.round((prefs.fontSize / FONT_DEFAULT) * 100)}%
     </button>
     <span>SideBySide {version ? `v${version}` : ''}{install?.runningInstalled ? '' : ' · portable'}</span>
   </footer>

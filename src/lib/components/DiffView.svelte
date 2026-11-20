@@ -5,7 +5,7 @@
   import { CHANGED, fetchRows, nav, overview, type Cell, type Hit, type Row, type Summary } from '#lib/api.ts';
   import { themeColor } from '#lib/theme.ts';
   import { colorLine, langFor, type Tok } from '#lib/syntax.ts';
-  import { prefs } from '#lib/prefs.svelte.ts';
+  import { prefs, spacingFactor } from '#lib/prefs.svelte.ts';
 
   let {
     summary,
@@ -53,7 +53,7 @@
   let map = $state<number[]>([]);
   let charW = $state(7.8);
 
-  const rowH = $derived(Math.round(fontSize * 1.54));
+  const rowH = $derived(Math.round(fontSize * spacingFactor()));
   // Line-number column: wide enough for the biggest line number in either file.
   const digits = $derived(Math.max(3, String(Math.max(summary.left.lines, summary.right.lines)).length));
   const lnW = $derived(Math.round(charW * 0.92 * digits + 22));
@@ -67,7 +67,7 @@
   let longestPx = $state(0);
   let paneW = $state(0);
   $effect(() => {
-    void rows, fontSize, width, lnW; // measure again when any of these change
+    void rows, fontSize, width, lnW, prefs.codeFont; // measure again when any of these change
     tick().then(() => {
       if (!viewport) return;
       let w = 0;
@@ -129,10 +129,10 @@
     document.fonts?.ready.then(() => (fontsReady = true));
   });
   $effect(() => {
-    void fontsReady;
+    void fontsReady, prefs.codeFont;
     const ctx = document.createElement('canvas').getContext('2d');
     if (!ctx || !viewport) return;
-    ctx.font = `${fontSize}px ${getComputedStyle(document.documentElement).getPropertyValue('--font-code')}`;
+    ctx.font = `${fontSize}px ${getComputedStyle(viewport).getPropertyValue('--font-code')}`;
     charW = ctx.measureText('0'.repeat(100)).width / 100 || fontSize * 0.6;
   });
 
