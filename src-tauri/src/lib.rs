@@ -1,6 +1,7 @@
 // SideBySide by 92-bit
 // This file starts the app and connects the screen to the comparing engine (engine.rs).
 
+mod cli;
 pub mod engine;
 pub mod export;
 pub mod fold;
@@ -346,6 +347,10 @@ pub fn run() {
     if args.iter().any(|a| a == "--uninstall") {
         install::uninstall();
         return;
+    }
+    // "sidebyside old.txt new.txt --summary / --patch / --report out.html": no window (see cli.rs).
+    if cli::wanted(&args) {
+        std::process::exit(cli::run(&args));
     }
 
     // Started by an update or by "open the installed copy": wait for the old window to close
