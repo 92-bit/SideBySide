@@ -1,6 +1,6 @@
 {
   "name": "sidebyside",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "SideBySide by 92-bit: fast, lightweight side-by-side text comparison",
   "type": "module",
   "scripts": {
