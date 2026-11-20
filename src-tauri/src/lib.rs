@@ -2,6 +2,7 @@
 // This file starts the app and connects the screen to the comparing engine (engine.rs).
 
 pub mod engine;
+pub mod tidy;
 mod install;
 mod update;
 

@@ -4,6 +4,7 @@ import { FONT_DEFAULT, FONT_MAX, FONT_MIN, loadFontSize, saveFontSize } from '#l
 const CODE_COLORS_KEY = 'sbs-code-colors';
 const CODE_FONT_KEY = 'sbs-code-font';
 const SPACING_KEY = 'sbs-line-spacing';
+const TIDY_KEY = 'sbs-tidy';
 
 function read(key: string): string | null {
   try {
@@ -48,7 +49,22 @@ export const prefs = $state({
   fontSize: loadFontSize(),
   codeFont: (CODE_FONTS.some((f) => f.id === savedFont) ? savedFont : 'geist') as CodeFont,
   spacing: (SPACINGS.some((s) => s.id === savedSpacing) ? savedSpacing : 'normal') as Spacing,
+  /** Tidy up JSON and XML files before comparing (one item per line). */
+  tidy: read(TIDY_KEY) === 'on',
 });
+
+export function setTidy(on: boolean) {
+  prefs.tidy = on;
+  write(TIDY_KEY, on ? 'on' : 'off');
+}
+
+/** JSON or XML, by the file name (the same list as tidy.rs). */
+export function tidyKind(name: string): 'JSON' | 'XML' | null {
+  const ext = name.toLowerCase().split('.').pop() ?? '';
+  if (['json', 'jsonc', 'json5', 'geojson', 'ipynb', 'har', 'webmanifest'].includes(ext)) return 'JSON';
+  const xml = ['xml', 'xsd', 'xsl', 'xslt', 'svg', 'xaml', 'csproj', 'vbproj', 'fsproj', 'props', 'targets', 'resx', 'config', 'plist', 'nuspec', 'wsdl', 'kml', 'gpx', 'rss', 'atom'];
+  return xml.includes(ext) ? 'XML' : null;
+}
 
 export function setCodeColors(on: boolean) {
   prefs.codeColors = on;

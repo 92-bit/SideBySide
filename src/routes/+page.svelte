@@ -52,7 +52,7 @@
     markUpdateChecked,
     updateCheckDue,
   } from '#lib/settings.ts';
-  import { applyCodeFont, prefs, zoomStep } from '#lib/prefs.svelte.ts';
+  import { applyCodeFont, prefs, setTidy, tidyKind, zoomStep } from '#lib/prefs.svelte.ts';
   import { changeLook, followSystem, loadLook, setLook, type Look } from '#lib/theme.ts';
 
   type SideName = 'left' | 'right';
@@ -181,11 +181,13 @@
         ignoreCase: used.caseLetters,
         ignoreBlankLines: used.blank,
         ignoreRules: used.rules ? activeRules(rulesCfg) : [],
+        tidy: prefs.tidy,
       });
       if (id === runId) {
         keepPlace = quiet ? (view?.getPlace() ?? null) : (restore?.place ?? null);
         summary = s;
         shownIgnore = used;
+        shownTidy = prefs.tidy;
         filesChanged = false;
         current = null;
         lastFound = null;
@@ -335,6 +337,16 @@
     ignore.rules = on;
     run();
   }
+  // ---- Tidy up JSON / XML ----
+  const tidyable = $derived(summary ? (tidyKind(summary.left.name) ?? tidyKind(summary.right.name)) : null);
+  /** The tidy result on screen (the setting may have changed since). */
+  let shownTidy = $state(false);
+  let tidyTipHidden = $state(false);
+  function changeTidy(on: boolean) {
+    setTidy(on);
+    run();
+  }
+
   function onWindowClick(e: MouseEvent) {
     if (rulesOpen && rulesWrap && !rulesWrap.contains(e.target as Node)) rulesOpen = false;
   }
@@ -597,8 +609,21 @@
         />
       {/if}
 
+      {#if summary && tidyable && shownTidy}
+        <div class="note">
+          <span>Tidied up: one item per line. The line numbers are for the tidied text.</span>
+          <button type="button" onclick={() => changeTidy(false)}>Show as they are</button>
+        </div>
+      {:else if summary && tidyable && !tidyTipHidden}
+        <div class="note">
+          <span>These are {tidyable} files. Tidy them up first, with one item per line? Then the formatting doesn't count, only the content.</span>
+          <button type="button" class="go" onclick={() => changeTidy(true)}>Tidy up</button>
+          <button type="button" class="x" aria-label="Hide this tip" title="Hide this tip" onclick={() => (tidyTipHidden = true)}>×</button>
+        </div>
+      {/if}
+
       {#if filesChanged && summary && !live}
-        <div class="changed-bar" role="alert">
+        <div class="note" role="alert">
           <span>A file was changed after it was compared, so the text shown may be out of date.</span>
           <button type="button" onclick={() => run()}>Compare again</button>
         </div>
@@ -613,7 +638,7 @@
                 <span class="ic" aria-hidden="true">{side === 'left' ? 'OLD' : 'NEW'}</span>
                 <div class="t" title={info.path}>
                   <b><span class="sr">{side === 'left' ? 'Original: ' : 'New: '}</span>{pasted ? 'Pasted text' : info.name}</b>
-                  <small>{pasted ? '' : `${folderOf(info.path)} · `}{fmtSize(info.size)} · {fmtNum(info.lines)} lines</small>
+                  <small>{pasted ? '' : `${folderOf(info.path)} · `}{fmtSize(info.size)} · {fmtNum(info.lines)} {info.lines === 1 ? 'line' : 'lines'}</small>
                 </div>
                 <button type="button" class="change" onclick={() => choose(side)}>Change…</button>
               </div>
@@ -1073,25 +1098,62 @@
     flex: 1;
   }
 
-  .changed-bar {
+  /* A slim message above the files (file changed on disk, tidy up JSON / XML). */
+  .note {
     flex: none;
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 6px 12px;
-    font-size: 12px;
-    color: var(--fg-strong);
-    background: var(--accent-bg);
-    border-bottom: 1px solid var(--accent-border);
+    gap: 10px;
+    margin: 4px 14px 2px;
+    padding: 6px 8px 6px 14px;
+    border-radius: 12px;
+    font-size: 12.5px;
+    color: var(--t-strong);
+    background: var(--t-acc-bg);
+    border: 1px solid color-mix(in srgb, var(--t-acc) 30%, transparent);
+    animation: note-in 0.22s cubic-bezier(0.23, 1, 0.32, 1);
   }
-  .changed-bar button {
+  .note span {
+    flex: 1;
+  }
+  @keyframes note-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+  }
+  .note button {
+    flex: none;
     font: inherit;
-    color: var(--accent-fg);
-    background: none;
-    border: 1px solid var(--accent-border);
-    border-radius: 5px;
-    padding: 2px 10px;
+    height: 26px;
+    color: var(--t-acc);
+    background: var(--t-card);
+    border: 1px solid color-mix(in srgb, var(--t-acc) 35%, transparent);
+    border-radius: 8px;
+    padding: 0 10px;
     cursor: pointer;
+  }
+  .note button:active {
+    transform: scale(0.97);
+  }
+  .note .go {
+    color: var(--t-on-acc);
+    background: var(--t-acc);
+    border-color: transparent;
+    font-weight: 600;
+  }
+  .note .x {
+    width: 26px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--t-muted);
+    font-size: 16px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .note {
+      animation: none;
+    }
   }
   .stage {
     flex: 1;

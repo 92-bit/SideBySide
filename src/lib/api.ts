@@ -49,6 +49,8 @@ export interface Options {
   ignoreBlankLines: boolean;
   /** Parts of lines that don't count, as regular expressions (see rules.ts). */
   ignoreRules: string[];
+  /** Tidy up JSON and XML files first (one item per line). */
+  tidy: boolean;
 }
 
 /** Returned as the error when Cancel was pressed, or a newer comparison replaced this one. */

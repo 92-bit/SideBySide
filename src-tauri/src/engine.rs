@@ -55,6 +55,9 @@ pub struct Options {
     /// Ignore rules: parts of lines that don't count, as regular expressions (e.g. timestamps).
     #[serde(default)]
     pub ignore_rules: Vec<String>,
+    /// Tidy up JSON and XML files first (one item per line), see tidy.rs.
+    #[serde(default)]
+    pub tidy: bool,
     /// The rules, ready to use (made by `compare`).
     #[serde(skip)]
     rules: Vec<regex::bytes::Regex>,
@@ -434,6 +437,25 @@ pub fn remove_left_over_copies(running: impl Fn(u32) -> bool) {
     }
 }
 
+/// Write a tidied copy of a JSON or XML file (one item per line) to the Temp folder.
+fn tidy_copy(path: &Path, name: &str, kind: crate::tidy::Kind, ctl: &Control) -> Result<TempCopy, String> {
+    let n = COPY_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let copy = TempCopy(std::env::temp_dir().join(format!("SideBySide-{}-{n}.txt", std::process::id())));
+    let input = File::open(path).map_err(|e| format!("Could not read \"{name}\": {e}"))?;
+    let file = File::create(&copy.0).map_err(|e| format!("Could not tidy \"{name}\" (Temp folder: {e})"))?;
+    let mut out = std::io::BufWriter::with_capacity(READ_BUF, file);
+    let stop = || ctl.check().map_err(io::Error::other);
+    let done = match kind {
+        crate::tidy::Kind::Json => crate::tidy::json(input, &mut out, &stop),
+        crate::tidy::Kind::Xml => crate::tidy::xml(input, &mut out, &stop),
+    };
+    done.map_err(|e| {
+        let e = e.to_string();
+        if e == CANCELLED { e } else { format!("Could not tidy \"{name}\": {e}") }
+    })?;
+    Ok(copy)
+}
+
 /// Write a normal UTF-8 copy of the file (with "\n" line ends) to the Temp folder.
 fn convert(path: &Path, name: &str, format: &Format, ctl: &Control) -> Result<TempCopy, String> {
     use std::io::{Read, Write};
@@ -507,11 +529,17 @@ fn scan_file(path: &Path, opts: &Options, ctl: &Control, done_before: u64, total
         .and_then(|f| f.take(READ_BUF as u64).read_to_end(&mut head))
         .map_err(|e| format!("Could not open \"{name}\": {e}"))?;
     let format = detect(&head);
-    if format == Format::Normal {
+    let tidy_kind = if opts.tidy { crate::tidy::kind_of(&name) } else { None };
+    if format == Format::Normal && tidy_kind.is_none() {
         return scan(path, &name, opts, ctl, done_before, total);
     }
     let meta = std::fs::metadata(path).map_err(|e| format!("Could not read \"{name}\": {e}"))?;
-    let copy = convert(path, &name, &format, ctl)?;
+    let mut copy = if format == Format::Normal { None } else { Some(convert(path, &name, &format, ctl)?) };
+    if let Some(kind) = tidy_kind {
+        let from = copy.as_ref().map_or(path, |c| c.0.as_path());
+        copy = Some(tidy_copy(from, &name, kind, ctl)?); // (the converted copy isn't needed after this)
+    }
+    let copy = copy.expect("a copy was made above");
     let mut s = scan(&copy.0, &name, opts, ctl, done_before, total)?;
     s.side.path = path.to_path_buf();
     s.side.size = meta.len();
@@ -1509,6 +1537,27 @@ mod tests {
         assert!(l.iter().any(|s| s.h && s.t.contains("light")));
         assert!(l.iter().any(|s| !s.h && s.t.contains("theme")));
         assert_eq!(rows[1].k, 0);
+    }
+
+    #[test]
+    fn json_files_can_be_tidied_first() {
+        let named = |name: &str, content: &[u8]| {
+            let p = tmp(content).with_file_name(format!("sbs-test-{}-{name}", std::process::id()));
+            std::fs::write(&p, content).unwrap();
+            p
+        };
+        let a = named("a.json", br#"{"name":"x","list":[1,2,3]}"#);
+        let b = named("b.json", b"{\n    \"name\": \"x\",\n    \"list\": [1, 2, 4]\n}\n");
+        // as they are: one line against four
+        let s = cmp_paths(&a, &b, Options::default()).unwrap().summary();
+        assert_eq!((s.left.lines, s.right.lines), (1, 4));
+        // tidied: only the changed number differs, and the text shown is the tidied one
+        let c = cmp_paths(&a, &b, Options { tidy: true, ..Default::default() }).unwrap();
+        let s = c.summary();
+        assert_eq!((s.left.lines, s.right.lines, s.blocks, s.changed), (8, 8, 1, 1));
+        let rows = c.rows(0, 10).unwrap();
+        assert_eq!(text(&rows[5].r), "    4");
+        assert_eq!(s.left.size, std::fs::metadata(&a).unwrap().len()); // the real file's size is shown
     }
 
     #[test]
