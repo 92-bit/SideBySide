@@ -131,6 +131,28 @@ export interface FolderResult {
 export const compareFolders = (left: string, right: string) => invoke<FolderResult>('compare_folders', { left, right });
 export const isFolder = (path: string) => invoke<boolean>('is_folder', { path });
 
+// ---- Three files ----
+export interface Summary3 {
+  original: SideInfo;
+  a: SideInfo;
+  b: SideInfo;
+  totalRows: number;
+  changes: number;
+  conflicts: number;
+  millis: number;
+}
+/** k: 0 = unchanged, 1 = changed in A, 2 = changed in B, 3 = the same change in both, 4 = conflict. */
+export interface Row3 {
+  k: 0 | 1 | 2 | 3 | 4;
+  a: { n: number; t: string } | null;
+  o: { n: number; t: string } | null;
+  b: { n: number; t: string } | null;
+}
+export const compareThree = (original: string, a: string, b: string, options: Options) =>
+  invoke<Summary3>('compare_three', { original, a, b, options });
+export const threeRows = (start: number, count: number) => invoke<Row3[]>('three_rows', { start, count });
+export const threeNav = (row: number, dir: number) => invoke<Hit | null>('three_nav', { row, dir });
+
 // ---- Editing and merging ----
 /** Which files have unsaved changes, and whether Undo / Redo can do anything. */
 export interface EditState {

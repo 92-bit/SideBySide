@@ -7,6 +7,7 @@ pub mod edit;
 pub mod export;
 pub mod fold;
 pub mod folders;
+pub mod three;
 pub mod tidy;
 mod install;
 mod update;
@@ -34,6 +35,8 @@ struct AppState {
     pending_files: Mutex<Vec<String>>,
     /// "Hide unchanged" is switched on.
     fold_on: AtomicBool,
+    /// The three-way comparison on screen, if one is (see three.rs).
+    three: Mutex<Option<Arc<three::Three>>>,
     /// Files being edited (their working copies) and the undo / redo history, see edit.rs.
     work: Mutex<Work>,
     /// The last report saved, so "Open it" can open exactly that file (and nothing else).
@@ -210,6 +213,45 @@ async fn compare_folders(state: tauri::State<'_, AppState>, left: String, right:
     tauri::async_runtime::spawn_blocking(move || folders::compare(Path::new(&left), Path::new(&right), &ctl))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// Compare an original file with two changed versions of it (see three.rs).
+#[tauri::command]
+async fn compare_three(
+    state: tauri::State<'_, AppState>,
+    original: String,
+    a: String,
+    b: String,
+    options: Options,
+) -> Result<three::Summary3, String> {
+    let ctl = Arc::new(Control::default());
+    if let Ok(mut c) = state.control.lock() {
+        c.cancel.store(true, Ordering::SeqCst);
+        *c = ctl.clone();
+    }
+    let started = std::time::Instant::now();
+    let t = tauri::async_runtime::spawn_blocking(move || {
+        three::Three::new(Path::new(&original), Path::new(&a), Path::new(&b), &options, &ctl)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let s = t.summary(started.elapsed().as_millis() as u64);
+    *state.three.lock().map_err(|_| "busy")? = Some(Arc::new(t));
+    Ok(s)
+}
+
+fn three(state: &AppState) -> Option<Arc<three::Three>> {
+    state.three.lock().ok()?.clone()
+}
+
+#[tauri::command]
+async fn three_rows(state: tauri::State<'_, AppState>, start: u64, count: u32) -> Result<Vec<three::Row3>, String> {
+    three(&state).ok_or("Nothing to show")?.rows(start, count.min(500))
+}
+
+#[tauri::command]
+fn three_nav(state: tauri::State<'_, AppState>, row: u64, dir: i32) -> Option<Hit> {
+    three(&state)?.nav(row, dir)
 }
 
 /// Is this a folder? (For dropped or picked paths.)
@@ -526,6 +568,9 @@ fn close_compare(state: tauri::State<'_, AppState>) {
     if let Ok(mut f) = state.folds.lock() {
         *f = Folds::default();
     }
+    if let Ok(mut t) = state.three.lock() {
+        *t = None;
+    }
 }
 
 /// Save pasted text to two files in the temporary folder, so they can be compared like any file.
@@ -720,6 +765,9 @@ pub fn run() {
             fetch_url,
             copy_block,
             compare_folders,
+            compare_three,
+            three_rows,
+            three_nav,
             is_folder,
             edit_line,
             undo_redo,

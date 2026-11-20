@@ -18,6 +18,7 @@
   import GitDialog from '#lib/components/GitDialog.svelte';
   import UrlDialog from '#lib/components/UrlDialog.svelte';
   import FolderView from '#lib/components/FolderView.svelte';
+  import ThreeView from '#lib/components/ThreeView.svelte';
   import { activeRules, loadRules, saveRules, type RulesConfig } from '#lib/rules.ts';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { getVersion } from '@tauri-apps/api/app';
@@ -38,6 +39,8 @@
     saveClipboardText,
     copyBlock,
     compareFolders,
+    compareThree,
+    type Summary3,
     isFolder,
     type FolderResult,
     type FolderEntry,
@@ -160,7 +163,8 @@
   let roll = $state(0);
   function stepDiff(d: 1 | -1) {
     roll = d;
-    Promise.resolve(d > 0 ? view?.next(true) : view?.prev(true)).finally(() => setTimeout(() => (roll = 0)));
+    const v = threeSum ? threeView : view;
+    Promise.resolve(d > 0 ? v?.next(true) : v?.prev(true)).finally(() => setTimeout(() => (roll = 0)));
   }
 
   function pickLook(next: Look, from: { x: number; y: number }) {
@@ -293,6 +297,8 @@
     session: Session | null;
     /** A folder comparison (kept as it is: it's only a list). */
     folders?: FolderResult | null;
+    /** A three-way comparison: compared again when shown. */
+    three?: [string, string, string] | null;
   }
   let tabs = $state<Tab[]>([{ id: 1, session: null }]);
   let activeTab = $state(1);
@@ -312,7 +318,10 @@
   }
   const nameOf = (p: string) => (isPasted(p) ? 'Pasted text' : fileName(p));
   const folderPair = (f: FolderResult) => `${fileName(f.left)} ↔ ${fileName(f.right)} (folders)`;
+  const threeTitle = (p: [string, string, string]) => `${fileName(p[1])} | ${fileName(p[0])} | ${fileName(p[2])}`;
   function tabTitle(t: Tab): string {
+    if (t.id === activeTab && threePaths) return threeTitle(threePaths);
+    if (t.id !== activeTab && t.three) return threeTitle(t.three);
     if (t.id === activeTab && folders && !summary) return folderPair(folders);
     if (t.id !== activeTab && t.folders) return folderPair(t.folders);
     if (t.id === activeTab) {
@@ -321,11 +330,15 @@
     }
     return t.session ? `${nameOf(t.session.left)} ↔ ${nameOf(t.session.right)}` : 'New comparison';
   }
-  async function showSession(s: Session | null, f: FolderResult | null = null) {
+  async function showSession(s: Session | null, f: FolderResult | null = null, t: [string, string, string] | null = null) {
     closeAll();
     pasteMode = false;
     recentOpen = false;
     folders = f;
+    if (t) {
+      runThree(...t);
+      return;
+    }
     if (!s) return;
     paths = { left: s.left, right: s.right };
     ignore = { rules: false, ...s.ignore };
@@ -335,15 +348,15 @@
   async function switchTab(id: number) {
     if (id === activeTab || !(await askToSave())) return;
     const cur = tabs.find((t) => t.id === activeTab);
-    if (cur) [cur.session, cur.folders] = [captureSession(), summary ? null : folders];
+    if (cur) [cur.session, cur.folders, cur.three] = [captureSession(), summary ? null : folders, threePaths];
     activeTab = id;
     const next = tabs.find((t) => t.id === id);
-    await showSession(next?.session ?? null, next?.folders ?? null);
+    await showSession(next?.session ?? null, next?.folders ?? null, next?.three ?? null);
   }
   async function newTab() {
     if (!(await askToSave())) return;
     const cur = tabs.find((t) => t.id === activeTab);
-    if (cur) [cur.session, cur.folders] = [captureSession(), summary ? null : folders];
+    if (cur) [cur.session, cur.folders, cur.three] = [captureSession(), summary ? null : folders, threePaths];
     const id = ++tabSeq;
     tabs.push({ id, session: null });
     activeTab = id;
@@ -362,12 +375,63 @@
     if (id === activeTab) {
       const next = tabs[Math.min(i, tabs.length - 1)];
       activeTab = next.id;
-      await showSession(next.session, next.folders ?? null);
+      await showSession(next.session, next.folders ?? null, next.three ?? null);
     }
   }
   function stepTab(d: 1 | -1) {
     const i = tabs.findIndex((t) => t.id === activeTab);
     switchTab(tabs[(i + d + tabs.length) % tabs.length].id);
+  }
+
+  // ---- Three files: "A | original | B" ----
+  let threeSum = $state<Summary3 | null>(null);
+  let threePaths = $state<[string, string, string] | null>(null);
+  let threeView = $state<ReturnType<typeof ThreeView>>();
+  async function runThree(original: string, a: string, b: string) {
+    closeAll();
+    pasteMode = false;
+    recentOpen = false;
+    const id = ++runId;
+    busy = true;
+    error = null;
+    startProgress();
+    try {
+      const s = await compareThree(original, a, b, {
+        ignoreSpaces: ignore.spaces,
+        ignoreCase: ignore.caseLetters,
+        ignoreBlankLines: false,
+        ignoreRules: ignore.rules ? activeRules(rulesCfg) : [],
+        tidy: false,
+        leftLines: null,
+        rightLines: null,
+      });
+      if (id === runId) {
+        threeSum = s;
+        threePaths = [original, a, b];
+        current = null;
+      }
+    } catch (e) {
+      if (id === runId && String(e) !== CANCELLED) error = String(e);
+    } finally {
+      if (id === runId) {
+        busy = false;
+        stopProgress();
+      }
+    }
+  }
+  async function chooseThree() {
+    if (!(await askToSave())) return;
+    const pick = async (title: string) => {
+      const p = await open({ multiple: false, directory: false, title });
+      return typeof p === 'string' ? p : null;
+    };
+    const o = await pick('1 of 3: choose the original file');
+    if (!o) return;
+    const a = await pick('2 of 3: choose the first changed version (A)');
+    if (!a) return;
+    const b = await pick('3 of 3: choose the second changed version (B)');
+    if (!b) return;
+    runThree(o, a, b);
   }
 
   // ---- Folders ----
@@ -496,6 +560,8 @@
   function closeAll() {
     runId++;
     folders = null;
+    threeSum = null;
+    threePaths = null;
     ranges = { left: null, right: null };
     busy = false;
     stopProgress();
@@ -749,6 +815,11 @@
     if (!(await askToSave())) return;
     pasteMode = false;
     recentOpen = false;
+    // Three files: original, A, B.
+    if (files.length === 3) {
+      runThree(files[0], files[1], files[2]);
+      return;
+    }
     // Two folders: compare the folders.
     if (files.length >= 2 && (await isFolder(files[0])) && (await isFolder(files[1]))) {
       runFolders(files[0], files[1]);
@@ -917,7 +988,8 @@
       </button>
     {/snippet}
     {#snippet island()}
-      {@const none = !summary || summary.blocks === 0}
+      {@const blocks = summary ? summary.blocks : threeSum ? threeSum.changes : 0}
+      {@const none = blocks === 0}
       <button type="button" class="ib sq" disabled={none} onclick={() => stepDiff(-1)} title="Previous difference (F7)" aria-label="Previous difference">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
       </button>
@@ -925,8 +997,8 @@
         <span class="counter same" title="No differences">✓<span class="nd"> No differences</span></span>
       {:else}
         <span class="counter" aria-live="polite">
-          <b><RollingNumber value={summary && current ? fmtNum(current.index + 1) : '–'} dir={roll} /></b>
-          <span>of {summary ? fmtNum(summary.blocks) : '–'}</span>
+          <b><RollingNumber value={(summary || threeSum) && current ? fmtNum(current.index + 1) : '–'} dir={roll} /></b>
+          <span>of {summary || threeSum ? fmtNum(blocks) : '–'}</span>
         </span>
       {/if}
       <button type="button" class="ib sq" disabled={none} onclick={() => stepDiff(1)} title="Next difference (F8)" aria-label="Next difference">
@@ -1100,6 +1172,18 @@
               onFilesChanged={() => (filesChanged = true)}
             />
           {/key}
+        {:else if threeSum}
+          {#key threeSum}
+            <ThreeView
+              bind:this={threeView}
+              summary={threeSum}
+              fontSize={prefs.fontSize}
+              onCurrent={(h) => {
+                current = h;
+                setTimeout(() => (roll = 0));
+              }}
+            />
+          {/key}
         {:else if folders}
           <FolderView result={folders} onOpen={openFolderFile} />
         {:else if pasteMode}
@@ -1142,6 +1226,7 @@
               No files? <button type="button" class="link" onclick={() => (pasteMode = true)}>Paste text instead</button>
               · <button type="button" class="link" onclick={() => (urlOpen = true)} title="Ctrl+L">Open a web link</button>
               · <button type="button" class="link" onclick={chooseFolders}>Compare two folders</button>
+              · <button type="button" class="link" onclick={chooseThree}>Compare three files</button>
               {#if paths.left}
                 · <button type="button" class="link" onclick={compareClipboard} title="Ctrl+Shift+V">Compare with what you copied</button>
               {/if}
@@ -1248,6 +1333,10 @@
         <span class="lg d">{fmtNum(summary.removed)} removed</span>
         {#if summary.moved}<span class="lg m">{fmtNum(summary.moved)} moved</span>{/if}
       {/if}
+    {:else if threeSum}
+      <b>{threeSum.changes === 0 ? '✓ No changes' : `${fmtNum(threeSum.changes)} ${threeSum.changes === 1 ? 'change' : 'changes'}`}</b>
+      {#if threeSum.conflicts}<span class="lg d">{fmtNum(threeSum.conflicts)} {threeSum.conflicts === 1 ? 'conflict' : 'conflicts'} (A and B changed the same lines differently)</span>{/if}
+      <span>compared in {(threeSum.millis / 1000).toFixed(2)} s</span>
     {:else if folders}
       {@const changes = folders.different + folders.onlyLeft + folders.onlyRight}
       <b>{changes === 0 ? '✓ The folders are the same' : `${fmtNum(changes)} ${changes === 1 ? 'file differs' : 'files differ'}`}</b>

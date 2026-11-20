@@ -1482,6 +1482,18 @@ impl Comparison {
         self.total_rows
     }
 
+    /// Lines that are the same on both sides, as (left first line, right first line, lines),
+    /// lines counted from 0, in order. For three-way comparing (see three.rs).
+    pub fn same_spans(&self) -> Vec<(u32, u32, u32)> {
+        self.ops.iter().filter(|o| o.same && o.alen == o.blen && o.alen > 0).map(|o| (o.a, o.b, o.alen)).collect()
+    }
+
+    /// Lines `first .. first + count` (from 0) of one side, as shown (very long lines cut short).
+    pub fn lines(&self, left: bool, first: u32, count: u32) -> Result<Vec<String>, String> {
+        let side = if left { &self.left } else { &self.right };
+        side.read_lines(first, count).map_err(|e| e.to_string())
+    }
+
     /// The file the lines are read from (the file itself, or a converted copy of it).
     pub fn source(&self, left: bool) -> &Path {
         if left { &self.left.read_from } else { &self.right.read_from }
