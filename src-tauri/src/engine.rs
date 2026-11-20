@@ -141,6 +141,8 @@ pub struct Side {
     /// numbers shown), and the part's first and last line (counting from 1).
     offset: u32,
     part: Option<(u32, u32)>,
+    /// Shown as bytes (hex), see hex_copy.
+    hex: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -154,6 +156,8 @@ pub struct SideInfo {
     pub part: Option<(u32, u32)>,
     /// The text shown is the file itself (not a converted, tidied or partial copy), so it can be edited.
     pub editable: bool,
+    /// Not a text file: shown as bytes, in hexadecimal.
+    pub hex: bool,
 }
 
 fn file_name(path: &Path) -> String {
@@ -171,6 +175,7 @@ impl Side {
             lines: self.lines,
             part: self.part,
             editable: self.read_from == self.path && self.part.is_none(),
+            hex: self.hex,
         }
     }
 
@@ -453,6 +458,75 @@ pub fn remove_left_over_copies(running: impl Fn(u32) -> bool) {
     }
 }
 
+/// Biggest file that is shown as bytes (its hex text is about 5 times bigger).
+const HEX_MAX: u64 = 200 << 20;
+/// Bytes per line of the hex view.
+const HEX_WIDTH: usize = 16;
+
+/// One line of the hex view: "0000A0F0  4D 5A 90 00 03 00 00 00  04 00 00 00 FF FF 00 00  |MZ..............|"
+fn hex_line(offset: u64, bytes: &[u8], out: &mut Vec<u8>) {
+    use std::io::Write;
+    let _ = write!(out, "{offset:08X} ");
+    for i in 0..HEX_WIDTH {
+        if i == HEX_WIDTH / 2 {
+            out.push(b' ');
+        }
+        match bytes.get(i) {
+            Some(b) => {
+                let _ = write!(out, " {b:02X}");
+            }
+            None => out.extend_from_slice(b"   "),
+        }
+    }
+    out.extend_from_slice(b"  |");
+    out.extend(bytes.iter().map(|&b| if (0x20..0x7f).contains(&b) { b } else { b'.' }));
+    out.extend_from_slice(b"|\n");
+}
+
+/// Write a hex view of a file that isn't text to a copy in the Temp folder.
+fn hex_copy(path: &Path, name: &str, ctl: &Control) -> Result<TempCopy, String> {
+    use std::io::{Read, Write};
+    let size = std::fs::metadata(path).map_err(|e| format!("Could not read \"{name}\": {e}"))?.len();
+    if size > HEX_MAX {
+        return Err(format!("\"{name}\" isn't a text file, and it's too big (over 200 MB) to show as bytes."));
+    }
+    let n = COPY_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let copy = TempCopy(std::env::temp_dir().join(format!("SideBySide-{}-{n}.txt", std::process::id())));
+    let read_err = |e: io::Error| format!("Could not read \"{name}\": {e}");
+    let mut input = BufReader::with_capacity(READ_BUF, File::open(path).map_err(read_err)?);
+    let file = File::create(&copy.0).map_err(|e| format!("Could not show \"{name}\" as bytes (Temp folder: {e})"))?;
+    let mut out = std::io::BufWriter::with_capacity(READ_BUF, file);
+    let mut buf = vec![0u8; HEX_WIDTH * 4096];
+    let mut line = Vec::with_capacity(96 * 4096);
+    let mut offset = 0u64;
+    loop {
+        ctl.check()?;
+        // (fill whole lines, so every line but the last has 16 bytes)
+        let mut got = 0;
+        while got < buf.len() {
+            let n = input.read(&mut buf[got..]).map_err(read_err)?;
+            if n == 0 {
+                break;
+            }
+            got += n;
+        }
+        if got == 0 {
+            break;
+        }
+        line.clear();
+        for chunk in buf[..got].chunks(HEX_WIDTH) {
+            hex_line(offset, chunk, &mut line);
+            offset += chunk.len() as u64;
+        }
+        out.write_all(&line).map_err(read_err)?;
+        if got < buf.len() {
+            break;
+        }
+    }
+    out.flush().map_err(read_err)?;
+    Ok(copy)
+}
+
 /// Write lines `first` to `last` (counting from 1) of a file to a copy in the Temp folder.
 fn part_copy(path: &Path, name: &str, (first, last): (u32, u32), ctl: &Control) -> Result<TempCopy, String> {
     use std::io::{BufRead, Write};
@@ -582,14 +656,19 @@ fn scan_file(
     // Office files and PDFs: their text is compared (see docs.rs).
     let doc = crate::docs::kind_of(&name);
     let format = if doc.is_some() { Format::Normal } else { detect(&head) };
-    let tidy_kind = if opts.tidy && doc.is_none() { crate::tidy::kind_of(&name) } else { None };
+    // Not text (a zero byte near the start, and not UTF-16): shown as bytes, in hexadecimal.
+    let binary = doc.is_none() && format == Format::Normal && memchr(0, &head[..head.len().min(8192)]).is_some();
+    let tidy_kind = if opts.tidy && doc.is_none() && !binary { crate::tidy::kind_of(&name) } else { None };
     // A range that starts at the first line and goes past the end is the whole file.
     let range = range.filter(|&(first, last)| first > 1 || last < u32::MAX).map(|(f, l)| (f.max(1), l.max(f.max(1))));
-    if format == Format::Normal && tidy_kind.is_none() && range.is_none() && doc.is_none() {
+    if format == Format::Normal && tidy_kind.is_none() && range.is_none() && doc.is_none() && !binary {
         return scan(path, &name, opts, ctl, done_before, total);
     }
     let meta = std::fs::metadata(path).map_err(|e| format!("Could not read \"{name}\": {e}"))?;
     let mut copy = if format == Format::Normal { None } else { Some(convert(path, &name, &format, ctl)?) };
+    if binary {
+        copy = Some(hex_copy(path, &name, ctl)?);
+    }
     if let Some(d) = doc {
         let text = crate::docs::text_of(path, d)?;
         let n = COPY_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -607,6 +686,7 @@ fn scan_file(
     }
     let copy = copy.expect("a copy was made above");
     let mut s = scan(&copy.0, &name, opts, ctl, done_before, total)?;
+    s.side.hex = binary;
     if let Some((first, _)) = range {
         s.side.offset = first - 1;
         s.side.part = Some((first, first - 1 + s.side.lines.max(1)));
@@ -767,6 +847,7 @@ fn scan(path: &Path, name: &str, opts: &Options, ctl: &Control, done_before: u64
         long,
         offset: 0,
         part: None,
+        hex: false,
     };
     Ok(Scanned { side, hashes, map })
 }
@@ -2037,9 +2118,18 @@ mod tests {
     }
 
     #[test]
-    fn binary_files_are_refused() {
-        let r = cmp_paths(&tmp(b"abc\0def"), &tmp(b"abc"), Options::default());
-        assert!(r.is_err());
+    fn files_that_are_not_text_are_shown_as_bytes() {
+        let a: Vec<u8> = (0u8..40).collect();
+        let mut b = a.clone();
+        b[20] = 0xFF; // one byte changed, on the second line
+        let c = cmp_paths(&tmp(&a), &tmp(&b), Options::default()).unwrap();
+        let s = c.summary();
+        assert!(s.left.hex && s.right.hex && !s.left.editable);
+        assert_eq!((s.left.lines, s.blocks, s.changed), (3, 1, 1));
+        let rows = c.rows(0, 3).unwrap();
+        assert_eq!(text(&rows[0].l), "00000000  00 01 02 03 04 05 06 07  08 09 0A 0B 0C 0D 0E 0F  |................|");
+        assert_eq!(text(&rows[2].r), "00000020  20 21 22 23 24 25 26 27                           | !\"#$%&'|");
+        assert!(text(&rows[1].r).contains(" FF "));
     }
 
     #[test]

@@ -1115,6 +1115,12 @@
         />
       {/if}
 
+      {#if summary && (summary.left.hex || summary.right.hex)}
+        <div class="note">
+          <span>{summary.left.hex && summary.right.hex ? "These files aren't text, so they're" : "One of these files isn't text, so it's"} shown as bytes in hexadecimal: 16 per line, with the position on the left and the readable letters on the right.</span>
+        </div>
+      {/if}
+
       {#if summary && tidyable && shownTidy}
         <div class="note">
           <span>Tidied up: one item per line. The line numbers are for the tidied text.</span>

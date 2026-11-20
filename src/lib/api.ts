@@ -10,6 +10,8 @@ export interface SideInfo {
   part: [number, number] | null;
   /** The text shown is the file itself, so it can be edited. */
   editable: boolean;
+  /** Not a text file: shown as bytes, in hexadecimal. */
+  hex: boolean;
 }
 
 export interface Summary {
