@@ -11,7 +11,7 @@
 Fast · Lightweight · Free forever · Open source
 
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-3d4f80?style=flat-square)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-7aa2f7?style=flat-square)](#-download)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-7aa2f7?style=flat-square)](#-download)
 [![Latest release](https://img.shields.io/github/v/release/92-bit/SideBySide?style=flat-square&color=3fb950&label=download)](https://github.com/92-bit/SideBySide/releases/latest)
 
 </div>
@@ -29,8 +29,11 @@ Most comparison tools are either **heavy** or **struggle with large files**. Sid
 | 🎒 **Portable** | One file. Run it from a folder or a USB stick — no install needed. |
 | 📥 **Install if you like** | Prefer a normal app? Click **Install** inside SideBySide. No admin rights required. |
 | 🔄 **Updates itself** | New versions arrive automatically, signed so you know they're genuine. |
-| 🌗 **Light & dark** | The *Midnight* look by night, a clean light look by day — one click to switch. |
-| 🔒 **Private** | Your files never leave your computer. No accounts, no tracking. The only time it goes online is a once-a-day update check with GitHub, which you can switch off in **Help → About**. |
+| 🎨 **8 themes** | Aurora, Paper, Signal, Midnight, Dusk, Forest, Glacier and High contrast — each light and dark. |
+| 🧰 **Much more than two files** | Folders, three files, Word / Excel / PDF text, pictures, and any file as bytes. |
+| ✍️ **Edit & merge** | Copy a difference across with one click, edit a line, undo, then save. |
+| 🌍 **5 languages** | English, Español, Français, Deutsch, 中文. |
+| 🔒 **Private** | Your files never leave your computer. No accounts, no tracking. The only time it goes online is a once-a-day update check with GitHub (switch it off in **Help → About**), and when you open a web link yourself (<kbd>Ctrl</kbd>+<kbd>L</kbd>). |
 
 ---
 
@@ -39,6 +42,8 @@ Most comparison tools are either **heavy** or **struggle with large files**. Sid
 ### [⬇ Download SideBySide for Windows](https://github.com/92-bit/SideBySide/releases/latest/download/SideBySide.exe)
 
 Linux: get the `.AppImage` or `.deb` from the [**latest release**](https://github.com/92-bit/SideBySide/releases/latest).
+Mac: get the `.dmg` from the same page *(new — the Mac version hasn't been tested on a real Mac yet; the first time,
+right-click the app and choose **Open**)*.
 
 1. Download **`SideBySide.exe`** using the link above.
 2. Double-click it. That's it — you're comparing.
@@ -68,21 +73,46 @@ Linux: get the `.AppImage` or `.deb` from the [**latest release**](https://githu
 - [x] Right-click **Compare with SideBySide** in File Explorer
 - [x] Automatic updates, signed so they can't be faked
 
-### Coming next
-- Copy changes from one side to the other and save (merge)
-- Export differences as a report
-- Live reload when a file changes (great for log files)
-- Colors for code files
-- Command-line mode
-- More languages
-- Tabs for several comparisons at once
+### Version 2 — new
+- [x] A new look with 8 colour themes, light and dark
+- [x] Colours for code (about 20 kinds of code files)
+- [x] Live reload: follows a file as it changes (great for log files)
+- [x] Bookmarks (<kbd>Ctrl</kbd>+<kbd>B</kbd>, <kbd>F2</kbd>), keyboard shortcut list (<kbd>F1</kbd>)
+- [x] Font, text size, line spacing and word wrap
+- [x] Reopen the last comparison at start, and tabs for several comparisons
+- [x] Only the changed letters are marked inside a changed word
+- [x] Ignore rules (for example, skip timestamps in logs)
+- [x] Tidy up JSON and XML before comparing
+- [x] Hide long runs of unchanged lines
+- [x] Inline (one-column) view
+- [x] Moved blocks of lines are shown as *moved*
+- [x] Compare only part of a file (a range of lines)
+- [x] Edit lines, copy differences across (merge), undo / redo and save
+- [x] Save a report (HTML, prints to PDF) or copy a patch
+- [x] Command line, and use as Git's compare tool (**Help → Use with Git**)
+- [x] Compare with the clipboard (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd>) or a web link (<kbd>Ctrl</kbd>+<kbd>L</kbd>)
+- [x] Compare folders, and three files (original + two versions)
+- [x] Word, Excel, PowerPoint and PDF files (by their text), pictures, and any file as bytes (hex)
+- [x] English, Español, Français, Deutsch, 中文
 
-### Later on
-- Compare whole folders
-- Three-way compare
-- Detect lines that only moved
-- Custom ignore rules (for example, skip timestamps in logs)
-- Save and reopen comparison sessions
+### Ideas welcome
+Have an idea? Open an [issue](https://github.com/92-bit/SideBySide/issues).
+
+---
+
+## ⌨️ Command line
+
+```bash
+sidebyside old.txt new.txt                      # open them in the window
+sidebyside old.txt new.txt --summary            # print how many lines differ
+sidebyside old.txt new.txt --patch > changes.diff
+sidebyside old.txt new.txt --report report.html --ignore-times
+sidebyside folderA folderB                      # compare two folders
+sidebyside original.txt a.txt b.txt             # three files
+```
+
+The exit code is **0** when the files are the same, **1** when they differ and **2** if something went wrong.
+`sidebyside --help` lists every option. In PowerShell, add `| Write-Output` so it waits for the result.
 
 ---
 
