@@ -1,8 +1,8 @@
 <script lang="ts">
   // The theme picker: Dark / Light / Match Windows, and the colour themes with a small preview each.
-  import { THEMES, type Palette } from '$lib/themes';
-  import { shadeOf, type Look, type Mode } from '$lib/theme';
-  import { trapFocus } from '$lib/trapFocus';
+  import { THEMES, type Palette } from '#lib/themes.ts';
+  import { shadeOf, type Look, type Mode } from '#lib/theme.ts';
+  import { trapFocus } from '#lib/trapFocus.ts';
 
   let {
     look,

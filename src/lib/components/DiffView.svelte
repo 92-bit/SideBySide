@@ -2,8 +2,8 @@
   // Shows two files side by side. Only the rows on screen are ever loaded,
   // so this works the same for a 10-line file and a 10-million-line file.
   import { onMount, tick } from 'svelte';
-  import { CHANGED, fetchRows, nav, overview, type Cell, type Hit, type Row, type Summary } from '$lib/api';
-  import { themeColor } from '$lib/theme';
+  import { CHANGED, fetchRows, nav, overview, type Cell, type Hit, type Row, type Summary } from '#lib/api.ts';
+  import { themeColor } from '#lib/theme.ts';
 
   let {
     summary,

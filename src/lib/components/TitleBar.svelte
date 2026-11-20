@@ -3,7 +3,7 @@
   // page), and Install, Theme, Help and the window buttons on the right. Drag it to move the window.
   import type { Snippet } from 'svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
-  import type { Look } from '$lib/theme';
+  import type { Look } from '#lib/theme.ts';
   import ThemePanel from './ThemePanel.svelte';
 
   type HelpAction = 'check' | 'about' | 'site';

@@ -1,7 +1,7 @@
 <script lang="ts">
   // Asks before installing, then installs and reopens SideBySide from its new home.
-  import { installApp, openInstalled, type InstallInfo } from '$lib/api';
-  import { trapFocus } from '$lib/trapFocus';
+  import { installApp, openInstalled, type InstallInfo } from '#lib/api.ts';
+  import { trapFocus } from '#lib/trapFocus.ts';
 
   let { info, onClose }: { info: InstallInfo; onClose: () => void } = $props();
 

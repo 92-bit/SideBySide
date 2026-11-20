@@ -2,14 +2,14 @@
   import { onMount } from 'svelte';
   import { open } from '@tauri-apps/plugin-dialog';
   import { getCurrentWebview } from '@tauri-apps/api/webview';
-  import TitleBar from '$lib/components/TitleBar.svelte';
-  import RollingNumber from '$lib/components/RollingNumber.svelte';
-  import DiffView from '$lib/components/DiffView.svelte';
-  import FindBar from '$lib/components/FindBar.svelte';
-  import RecentList from '$lib/components/RecentList.svelte';
-  import PastePanel from '$lib/components/PastePanel.svelte';
-  import InstallDialog from '$lib/components/InstallDialog.svelte';
-  import UpdateDialog from '$lib/components/UpdateDialog.svelte';
+  import TitleBar from '#lib/components/TitleBar.svelte';
+  import RollingNumber from '#lib/components/RollingNumber.svelte';
+  import DiffView from '#lib/components/DiffView.svelte';
+  import FindBar from '#lib/components/FindBar.svelte';
+  import RecentList from '#lib/components/RecentList.svelte';
+  import PastePanel from '#lib/components/PastePanel.svelte';
+  import InstallDialog from '#lib/components/InstallDialog.svelte';
+  import UpdateDialog from '#lib/components/UpdateDialog.svelte';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { getVersion } from '@tauri-apps/api/app';
   import { listen } from '@tauri-apps/api/event';
@@ -33,8 +33,8 @@
     type InstallInfo,
     type Hit,
     type Summary,
-  } from '$lib/api';
-  import { addRecent, clearRecent, fileName, loadRecent, removeRecent, type Recent } from '$lib/recent';
+  } from '#lib/api.ts';
+  import { addRecent, clearRecent, fileName, loadRecent, removeRecent, type Recent } from '#lib/recent.ts';
   import {
     FONT_DEFAULT,
     FONT_MAX,
@@ -44,8 +44,8 @@
     markUpdateChecked,
     saveFontSize,
     updateCheckDue,
-  } from '$lib/settings';
-  import { changeLook, followSystem, loadLook, setLook, type Look } from '$lib/theme';
+  } from '#lib/settings.ts';
+  import { changeLook, followSystem, loadLook, setLook, type Look } from '#lib/theme.ts';
 
   type SideName = 'left' | 'right';
 

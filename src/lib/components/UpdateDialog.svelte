@@ -2,9 +2,9 @@
   // "About SideBySide" and "Check for updates" in one small window.
   import { onMount } from 'svelte';
   import { openUrl } from '@tauri-apps/plugin-opener';
-  import { checkUpdate, installUpdate, PROJECT_URL, RELEASES_URL, type UpdateInfo } from '$lib/api';
-  import { loadAutoUpdate, markUpdateChecked, saveAutoUpdate } from '$lib/settings';
-  import { trapFocus } from '$lib/trapFocus';
+  import { checkUpdate, installUpdate, PROJECT_URL, RELEASES_URL, type UpdateInfo } from '#lib/api.ts';
+  import { loadAutoUpdate, markUpdateChecked, saveAutoUpdate } from '#lib/settings.ts';
+  import { trapFocus } from '#lib/trapFocus.ts';
 
   let {
     version,

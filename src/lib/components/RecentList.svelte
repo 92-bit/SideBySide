@@ -1,6 +1,6 @@
 <script lang="ts">
   // Recent comparisons: a list (side panel) or small cards (start screen).
-  import { fileName, folderOf, timeAgo, type Recent } from '$lib/recent';
+  import { fileName, folderOf, timeAgo, type Recent } from '#lib/recent.ts';
 
   let {
     items,
