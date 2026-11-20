@@ -1291,18 +1291,63 @@ fn word_diff(a: &str, b: &str) -> (Vec<Seg>, Vec<Seg>) {
         .timeout(Duration::from_millis(20))
         .diff_words(a, b);
     let (mut l, mut r) = (Vec::new(), Vec::new());
+    // Removed and added words that sit together are looked at letter by letter, so
+    // "readFile" → "readFiles" marks only the "s".
+    let (mut del, mut ins) = (String::new(), String::new());
     for ch in diff.iter_all_changes() {
         let t = ch.value();
         match ch.tag() {
             ChangeTag::Equal => {
+                letters(&del, &ins, &mut l, &mut r);
+                del.clear();
+                ins.clear();
                 push_seg(&mut l, t, false);
                 push_seg(&mut r, t, false);
             }
-            ChangeTag::Delete => push_seg(&mut l, t, true),
-            ChangeTag::Insert => push_seg(&mut r, t, true),
+            ChangeTag::Delete => del.push_str(t),
+            ChangeTag::Insert => ins.push_str(t),
         }
     }
+    letters(&del, &ins, &mut l, &mut r);
     (l, r)
+}
+
+/// Longest stretch of changed text that is looked at letter by letter.
+const LETTER_DIFF_MAX: usize = 300;
+
+/// A removed piece and the added piece that replaced it. If they are mostly the same letters,
+/// mark only the letters that differ; otherwise mark both pieces whole (marking scattered
+/// letters of two different words would only be noise).
+fn letters(del: &str, ins: &str, l: &mut Vec<Seg>, r: &mut Vec<Seg>) {
+    if del.is_empty() || ins.is_empty() || del.len() > LETTER_DIFF_MAX || ins.len() > LETTER_DIFF_MAX {
+        if !del.is_empty() {
+            push_seg(l, del, true);
+        }
+        if !ins.is_empty() {
+            push_seg(r, ins, true);
+        }
+        return;
+    }
+    let diff = TextDiff::configure()
+        .algorithm(Algorithm::Myers)
+        .timeout(Duration::from_millis(5))
+        .diff_chars(del, ins);
+    if diff.ratio() < 0.6 {
+        push_seg(l, del, true);
+        push_seg(r, ins, true);
+        return;
+    }
+    for ch in diff.iter_all_changes() {
+        let t = ch.value();
+        match ch.tag() {
+            ChangeTag::Equal => {
+                push_seg(l, t, false);
+                push_seg(r, t, false);
+            }
+            ChangeTag::Delete => push_seg(l, t, true),
+            ChangeTag::Insert => push_seg(r, t, true),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1360,6 +1405,25 @@ mod tests {
         assert!(l.iter().any(|s| s.h && s.t.contains("light")));
         assert!(l.iter().any(|s| !s.h && s.t.contains("theme")));
         assert_eq!(rows[1].k, 0);
+    }
+
+    #[test]
+    fn similar_words_mark_only_the_changed_letters() {
+        let marked = |s: &[Seg]| s.iter().filter(|x| x.h).map(|x| x.t.as_str()).collect::<Vec<_>>().join("|");
+        // one letter added inside a word
+        let (l, r) = word_diff("import { readFile } from", "import { readFiles } from");
+        assert_eq!(marked(&l), "");
+        assert_eq!(marked(&r), "s");
+        // a number that changed by one digit
+        let (l, r) = word_diff("const MAX = 1024;", "const MAX = 1028;");
+        assert_eq!((marked(&l), marked(&r)), ("4".to_string(), "8".to_string()));
+        // different words stay marked whole
+        let (l, r) = word_diff("theme = light", "theme = dark");
+        assert_eq!((marked(&l), marked(&r)), ("light".to_string(), "dark".to_string()));
+        // the text itself is never changed
+        let (l, r) = word_diff("a readFile b", "a readFiles c");
+        assert_eq!(l.iter().map(|x| x.t.as_str()).collect::<String>(), "a readFile b");
+        assert_eq!(r.iter().map(|x| x.t.as_str()).collect::<String>(), "a readFiles c");
     }
 
     #[test]
