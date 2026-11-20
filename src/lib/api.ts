@@ -108,6 +108,8 @@ export interface GitSetup {
 }
 /** apply = false: only look; true: change Git's settings (git config --global). */
 export const gitSetup = (apply: boolean) => invoke<GitSetup>('git_setup', { apply });
+/** Save copied text to a temporary file (to compare it); returns its path. */
+export const saveClipboardText = (text: string) => invoke<string>('save_clipboard_text', { text });
 /** The differences as a patch (unified diff text). */
 export const makePatch = () => invoke<string>('make_patch');
 /** "Hide unchanged" on or off; returns how many rows the screen has now. */

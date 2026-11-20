@@ -331,8 +331,11 @@
   }
 
   // Code colours, for each side's file type (none for .txt, .log, pasted text...).
-  const langL = $derived(prefs.codeColors ? langFor(summary.left.name) : null);
-  const langR = $derived(prefs.codeColors ? langFor(summary.right.name) : null);
+  // (Pasted or copied text has no file type of its own: it gets the other side's.)
+  const pasted = (name: string) => name.startsWith('Pasted text (');
+  const langOf = (me: string, other: string) => langFor(me) ?? (pasted(me) ? langFor(other) : null);
+  const langL = $derived(prefs.codeColors ? langOf(summary.left.name, summary.right.name) : null);
+  const langR = $derived(prefs.codeColors ? langOf(summary.right.name, summary.left.name) : null);
 
   // A line is drawn in three layers: changed words (the engine's pieces), code colours and search
   // matches. All three are worked out on the whole line, then cut where any of them starts or ends,

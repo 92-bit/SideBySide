@@ -150,7 +150,7 @@ const NUM = /^(?:0[xX][\da-fA-F_]+|0[bB][01_]+|(?:\d[\d_]*\.?[\d_]*|\.\d[\d_]*)(
 export function colorLine(line: string, langId: string | null): Piece[] {
   const lang = langId ? LANGS[langId] : undefined;
   if (!lang || !line || line.length > MAX) return [{ t: line, c: '' }];
-  const key = langId + ' ' + line;
+  const key = langId + '\u0000' + line;
   const known = cache.get(key);
   if (known) return known;
   if (cache.size > 4000) cache.clear();

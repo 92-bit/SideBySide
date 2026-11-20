@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import { open, save } from '@tauri-apps/plugin-dialog';
+  import { readText } from '@tauri-apps/plugin-clipboard-manager';
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import TitleBar from '#lib/components/TitleBar.svelte';
   import RollingNumber from '#lib/components/RollingNumber.svelte';
@@ -31,6 +32,7 @@
     saveReport,
     openReport,
     makePatch,
+    saveClipboardText,
     type Spot,
     fmtNum,
     fmtSize,
@@ -477,6 +479,36 @@
     }
   }
 
+  // ---- Compare with the clipboard (Ctrl+Shift+V) ----
+  /** The original file (left) against whatever text was copied last. */
+  async function compareClipboard() {
+    const left = summary?.left.path ?? paths.left;
+    if (!left || isPasted(left)) {
+      tell('Choose the original file first; then press Ctrl+Shift+V to compare it with what you copied.');
+      return;
+    }
+    let text = '';
+    try {
+      text = (await readText()) ?? '';
+    } catch {
+      text = '';
+    }
+    if (!text) {
+      tell('There is no text in the clipboard. Copy some text first.');
+      return;
+    }
+    try {
+      const p = await saveClipboardText(text);
+      pasteMode = false;
+      recentOpen = false;
+      paths = { left, right: p };
+      ranges = { left: ranges.left, right: null };
+      run();
+    } catch (e) {
+      tell(String(e));
+    }
+  }
+
   // ---- Hide unchanged (folds) ----
   /** The screen gained `added` rows below screen row `at` (a fold was opened): move bookmarks along. */
   function foldOpened(at: number, added: number, total: number, place: { top: number; x: number; atEnd: boolean } | null) {
@@ -552,6 +584,7 @@
     else if (k === '-') zoom(-1);
     else if (k === '0') zoom(0);
     else if (k === 'o') choose(paths.left ? 'right' : 'left');
+    else if (k === 'v' && e.shiftKey) compareClipboard();
     else return;
     e.preventDefault();
   }
@@ -836,6 +869,9 @@
             {/if}
             <p class="orp rise" style:--i={2}>
               No files? <button type="button" class="link" onclick={() => (pasteMode = true)}>Paste text instead</button>
+              {#if paths.left}
+                · <button type="button" class="link" onclick={compareClipboard} title="Ctrl+Shift+V">Compare with what you copied</button>
+              {/if}
             </p>
             {#if recent.length}
               <div class="recent-home rise" style:--i={3}>

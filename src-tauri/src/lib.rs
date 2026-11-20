@@ -349,6 +349,16 @@ fn save_pasted(original: String, changed: String) -> Result<(String, String), St
     Ok((a.to_string_lossy().into_owned(), b.to_string_lossy().into_owned()))
 }
 
+/// Save copied text to a file in the temporary folder, to compare it like any file.
+#[tauri::command]
+fn save_clipboard_text(text: String) -> Result<String, String> {
+    let dir = std::env::temp_dir().join("SideBySide");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let p = dir.join("Pasted text (clipboard).txt");
+    std::fs::write(&p, text).map_err(|e| e.to_string())?;
+    Ok(p.to_string_lossy().into_owned())
+}
+
 /// Files given to the app (e.g. `sidebyside.exe old.txt new.txt`, or from the right-click menu)
 /// that the screen hasn't picked up yet.
 #[tauri::command]
@@ -454,6 +464,7 @@ pub fn run() {
         .manage(state)
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
             compare,
             progress,
@@ -468,6 +479,7 @@ pub fn run() {
             open_report,
             make_patch,
             git_setup,
+            save_clipboard_text,
             row_for_line,
             find,
             close_compare,

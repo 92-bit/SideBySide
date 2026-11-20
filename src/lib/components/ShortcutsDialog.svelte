@@ -49,6 +49,7 @@
         [[['Ctrl', 'Wheel']], 'Bigger or smaller text with the mouse'],
         [[['Ctrl', '0']], 'Normal text size'],
         [[['Ctrl', 'O']], 'Choose a file'],
+        [[['Ctrl', 'Shift', 'V']], 'Compare the original with what you copied'],
         [[['F1']], 'Show this list'],
       ],
     },
