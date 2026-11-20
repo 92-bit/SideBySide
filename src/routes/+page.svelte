@@ -19,6 +19,7 @@
     cancel,
     closeCompare,
     compare,
+    filesChanged as filesChangedOnDisk,
     find,
     fmtNum,
     fmtSize,
@@ -41,6 +42,8 @@
     FONT_MIN,
     loadAutoUpdate,
     loadFontSize,
+    loadLive,
+    saveLive,
     markUpdateChecked,
     saveFontSize,
     updateCheckDue,
@@ -78,6 +81,16 @@
   let install = $state<InstallInfo | null>(null);
   let installOpen = $state(false);
   let aboutOpen = $state(false);
+  /** Live reload: compare again by itself when a file changes on disk (e.g. a growing log). */
+  let live = $state(false);
+  /** A live update is running (quietly, the old result stays on screen). */
+  let updating = $state(false);
+  /** When the last live update finished, shown in the status bar. */
+  let updatedAt = $state<Date | null>(null);
+  /** A live update couldn't read a file (e.g. it is being saved right now); tried again next time. */
+  let liveProblem = $state<string | null>(null);
+  /** Where the view was before a live update, so it stays there afterwards. */
+  let keepPlace = $state<{ top: number; x: number; atEnd: boolean } | null>(null);
   /** Set when the daily check found a newer version. */
   let newVersion = $state<UpdateInfo | null>(null);
 
@@ -139,14 +152,19 @@
   // ---- Comparing ----
   // If another comparison starts meanwhile, the older result is thrown away.
   let runId = 0;
-  async function run() {
+  /** quiet: a live update. The old result stays on screen (no progress box) and the view keeps its place. */
+  async function run(quiet = false) {
     const { left, right } = paths;
     if (!left || !right) return;
     const id = ++runId;
     const used = { ...ignore };
-    busy = true;
-    error = null;
-    startProgress();
+    if (quiet) {
+      updating = true;
+    } else {
+      busy = true;
+      error = null;
+      startProgress();
+    }
     try {
       const s = await compare(left, right, {
         ignoreSpaces: used.spaces,
@@ -154,17 +172,27 @@
         ignoreBlankLines: used.blank,
       });
       if (id === runId) {
+        keepPlace = quiet ? (view?.getPlace() ?? null) : null;
         summary = s;
         shownIgnore = used;
         filesChanged = false;
         current = null;
         lastFound = null;
-        pasteMode = false;
-        if (!isPasted(left)) recent = addRecent(left, right);
+        liveProblem = null;
+        if (quiet) {
+          updatedAt = new Date();
+        } else {
+          updatedAt = null;
+          pasteMode = false;
+          if (!isPasted(left)) recent = addRecent(left, right);
+        }
       }
     } catch (e) {
       const msg = String(e);
-      if (id === runId && msg !== STALE) {
+      if (quiet) {
+        // Keep showing the last result; the next check tries again.
+        if (id === runId && msg !== STALE && msg !== CANCELLED) liveProblem = msg;
+      } else if (id === runId && msg !== STALE) {
         if (msg === CANCELLED) {
           // Go back to what was showing before.
           if (summary) {
@@ -179,10 +207,31 @@
     } finally {
       if (id === runId) {
         busy = false;
+        updating = false;
         stopProgress();
       }
     }
   }
+
+  // ---- Live reload ----
+  // Once a second, look at the two files' size and time (cheap, even for huge files). When one
+  // has changed, compare again quietly. A new check waits until the last update has finished.
+  $effect(() => {
+    if (!live || !summary || busy) return;
+    const t = setInterval(async () => {
+      if (updating || busy) return;
+      if (await filesChangedOnDisk().catch(() => false)) run(true);
+    }, 1000);
+    return () => clearInterval(t);
+  });
+  function toggleLive() {
+    live = !live;
+    saveLive(live);
+    if (!live) liveProblem = null;
+    else if (filesChanged) run(true);
+  }
+  /** "12:04:31" */
+  const clock = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
   function setPath(side: SideName, p: string) {
     paths[side] = p;
@@ -322,6 +371,7 @@
     const stopFollowing = followSystem(() => look);
     recent = loadRecent();
     fontSize = loadFontSize();
+    live = loadLive();
 
     getVersion().then((v) => (version = v));
     installInfo().then((i) => (install = i));
@@ -459,7 +509,7 @@
         />
       {/if}
 
-      {#if filesChanged && summary}
+      {#if filesChanged && summary && !live}
         <div class="changed-bar" role="alert">
           <span>A file was changed after it was compared, so the text shown may be out of date.</span>
           <button type="button" onclick={() => run()}>Compare again</button>
@@ -498,6 +548,7 @@
                 setTimeout(() => (roll = 0)); // after the counter has used it
               }}
               onZoom={zoom}
+              place={keepPlace}
               onFilesChanged={() => (filesChanged = true)}
             />
           {/key}
@@ -605,7 +656,25 @@
     {/if}
     <span class="grow"></span>
     {#if summary && !busy}
-      <span>Compared in {(summary.millis / 1000).toFixed(2)} s</span>
+      {#if live && liveProblem}
+        <span class="live-note warn" title={liveProblem}>Can't read a file right now, trying again…</span>
+      {:else if live && updating}
+        <span class="live-note">Updating…</span>
+      {:else if live && updatedAt}
+        <span class="live-note">Updated {clock(updatedAt)}</span>
+      {:else}
+        <span>Compared in {(summary.millis / 1000).toFixed(2)} s</span>
+      {/if}
+      <button
+        type="button"
+        class="live"
+        class:on={live}
+        aria-pressed={live}
+        onclick={toggleLive}
+        title={live ? 'Live: on. The comparison updates by itself when a file changes. Click to turn off.' : 'Live: compare again by itself whenever a file changes (handy for log files)'}
+      >
+        <span class="pulse" aria-hidden="true"></span>Live
+      </button>
     {/if}
     {#if newVersion}
       <button type="button" class="new-version" onclick={() => (aboutOpen = true)}>⬆ Version {newVersion.latest} is available</button>
@@ -1480,6 +1549,61 @@
   .zoom:hover {
     background: var(--t-line);
     color: var(--t-strong);
+  }
+  /* Live reload switch: a dot that breathes slowly while it is on. */
+  .live {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 1px solid var(--t-line2);
+    padding: 1px 8px 1px 7px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease,
+      border-color 0.15s ease;
+  }
+  .live:hover {
+    color: var(--t-strong);
+    background: var(--t-line);
+  }
+  .live:active {
+    transform: scale(0.97);
+  }
+  .live .pulse {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--t-faint);
+  }
+  .live.on {
+    color: var(--t-add-s);
+    border-color: color-mix(in srgb, var(--t-add-s) 45%, transparent);
+    background: var(--t-add);
+  }
+  .live.on .pulse {
+    background: var(--t-add-s);
+    animation: breathe 2.4s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    50% {
+      opacity: 0.35;
+    }
+  }
+  .live-note {
+    font-variant-numeric: tabular-nums;
+  }
+  .live-note.warn {
+    color: var(--t-chg-s);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .live.on .pulse {
+      animation: none;
+    }
   }
   .new-version {
     font: inherit;

@@ -1043,6 +1043,12 @@ fn diff_in_windows(
 }
 
 impl Comparison {
+    /// True if either file was changed (or removed) since it was compared. Cheap: it only
+    /// looks at each file's size and time, so it can be asked every second (live reload).
+    pub fn changed_on_disk(&self) -> bool {
+        self.left.changed_on_disk() || self.right.changed_on_disk()
+    }
+
     pub fn summary(&self) -> Summary {
         Summary {
             left: self.left.info(),
@@ -1709,7 +1715,9 @@ mod tests {
         let (pa, pb) = (tmp(b"one\ntwo\n"), tmp(b"one\nthree\n"));
         let c = cmp_paths(&pa, &pb, Options::default()).unwrap();
         assert!(c.rows(0, 2).is_ok());
+        assert!(!c.changed_on_disk());
         std::fs::write(&pb, b"one\nthree\nfour\n").unwrap();
+        assert!(c.changed_on_disk());
         assert_eq!(c.rows(0, 2).err().as_deref(), Some(CHANGED));
     }
 

@@ -55,3 +55,20 @@ export function saveFontSize(v: number) {
     // not saved this time
   }
 }
+
+const LIVE_KEY = 'sbs-live';
+/** Live reload: off unless switched on. */
+export function loadLive(): boolean {
+  try {
+    return localStorage.getItem(LIVE_KEY) === 'on';
+  } catch {
+    return false;
+  }
+}
+export function saveLive(on: boolean) {
+  try {
+    localStorage.setItem(LIVE_KEY, on ? 'on' : 'off');
+  } catch {
+    // not saved this time
+  }
+}

@@ -69,6 +69,8 @@ export const rowForLine = (left: boolean, line: number) => invoke<number | null>
 export const find = (query: string, from: number | null, forward: boolean, matchCase: boolean) =>
   invoke<number | null>('find', { query, from, forward, matchCase });
 export const closeCompare = () => invoke<void>('close_compare');
+/** Live reload: true if a compared file changed on disk since it was compared. */
+export const filesChanged = () => invoke<boolean>('files_changed');
 export const savePasted = (original: string, changed: string) =>
   invoke<[string, string]>('save_pasted', { original, changed });
 /** Files handed to the app (at start, or later from the right-click menu) not yet picked up. */

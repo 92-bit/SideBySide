@@ -15,6 +15,7 @@
     onCurrent,
     onZoom,
     onFilesChanged,
+    place = null,
   }: {
     summary: Summary;
     fontSize?: number;
@@ -24,6 +25,8 @@
     onZoom?: (step: number) => void;
     /** A file was changed on disk after it was compared, so its text can't be shown correctly. */
     onFilesChanged?: () => void;
+    /** After a live update: where the view was before (see getPlace). */
+    place?: { top: number; x: number; atEnd: boolean } | null;
   } = $props();
 
   const MAP_W = 14;
@@ -77,10 +80,19 @@
   const maxX = $derived(Math.max(0, longestPx - paneW + 24));
   // Shorter lines on screen, a wider window or a smaller zoom: don't stay scrolled past the end.
   $effect(() => {
-    if (scrollX > maxX) scrollX = maxX;
+    if (longestPx && scrollX > maxX) scrollX = maxX; // (not before the lines have been measured)
+  });
+
+  // After a live update the view was at the very end: stay there, so new lines at the end show.
+  // (Until the user scrolls; the height isn't known yet when this view starts.)
+  // svelte-ignore state_referenced_locally
+  let followEnd = $state(!!place?.atEnd);
+  $effect(() => {
+    if (followEnd) top = maxTop;
   });
 
   function setTop(t: number) {
+    followEnd = false;
     top = Math.max(0, Math.min(maxTop, Math.round(t)));
   }
   function setX(x: number) {
@@ -154,6 +166,10 @@
   }
   export function getTop() {
     return top;
+  }
+  /** Where the view is, so a live update can keep it there. */
+  export function getPlace() {
+    return { top, x: scrollX, atEnd: top >= maxTop };
   }
 
   // The frame around the current difference. It slides to the next one when that is a click
@@ -336,8 +352,16 @@
   onMount(() => {
     viewport.addEventListener('wheel', onWheel, { passive: false });
     viewport.addEventListener('keydown', onKey);
-    viewport.focus();
-    nav(0, 0).then(go);
+    if (place) {
+      // A live update: keep the place (and the keyboard focus where it was, e.g. in Find).
+      if (!place.atEnd) top = place.top;
+      scrollX = place.x;
+      // The old view had the focus (it is gone now): give it to this one, so the arrow keys keep working.
+      if (!document.activeElement || document.activeElement === document.body) viewport.focus();
+    } else {
+      viewport.focus();
+      nav(0, 0).then(go);
+    }
     return () => {
       viewport.removeEventListener('wheel', onWheel);
       viewport.removeEventListener('keydown', onKey);

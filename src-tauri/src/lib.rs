@@ -131,6 +131,12 @@ async fn find(
         .map_err(|e| e.to_string())?
 }
 
+/// Live reload: has a compared file changed since? False when nothing is compared.
+#[tauri::command]
+fn files_changed(state: tauri::State<'_, AppState>) -> bool {
+    current(&state).is_some_and(|c| c.changed_on_disk())
+}
+
 #[tauri::command]
 fn close_compare(state: tauri::State<'_, AppState>) {
     state.generation.fetch_add(1, Ordering::SeqCst);
@@ -254,6 +260,7 @@ pub fn run() {
             rows,
             nav,
             overview,
+            files_changed,
             row_for_line,
             find,
             close_compare,
