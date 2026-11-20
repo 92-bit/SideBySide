@@ -177,7 +177,7 @@
     margin-bottom: 0;
   }
   .ok {
-    color: #3fb950;
+    color: var(--ok);
   }
   .error {
     color: var(--error);

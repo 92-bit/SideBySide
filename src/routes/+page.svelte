@@ -44,11 +44,11 @@
     saveFontSize,
     updateCheckDue,
   } from '$lib/settings';
-  import { currentTheme, setTheme, type Theme } from '$lib/theme';
+  import { changeLook, followSystem, loadLook, setLook, type Look } from '$lib/theme';
 
   type SideName = 'left' | 'right';
 
-  let theme = $state<Theme>('dark');
+  let look = $state<Look>(loadLook());
   let paths = $state<{ left: string | null; right: string | null }>({ left: null, right: null });
   let summary = $state<Summary | null>(null);
   let busy = $state(false);
@@ -89,9 +89,10 @@
 
   const isPasted = (p: string | null) => !!p && /[\\/]SideBySide[\\/]Pasted text \(/.test(p);
 
-  function toggleTheme() {
-    theme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(theme);
+  function pickLook(next: Look, from: { x: number; y: number }) {
+    if (next.theme === look.theme && next.mode === look.mode) return;
+    look = next;
+    changeLook(next, from);
   }
 
   // ---- Progress bar ----
@@ -288,7 +289,8 @@
   }
 
   onMount(() => {
-    theme = currentTheme();
+    setLook(look); // also saves the colours for app.html, so the next start shows them at once
+    const stopFollowing = followSystem(() => look);
     recent = loadRecent();
     fontSize = loadFontSize();
 
@@ -341,6 +343,7 @@
       clearInterval(timer);
       unlisten.then((f) => f());
       unlistenFiles.then((f) => f());
+      stopFollowing();
     };
   });
 </script>
@@ -348,7 +351,7 @@
 <svelte:window onkeydown={onKey} />
 
 <div class="app">
-  <TitleBar {theme} onToggleTheme={toggleTheme} {onHelp} />
+  <TitleBar {look} onLook={pickLook} {onHelp} />
 
   <div class="body">
     <nav class="activity" aria-label="Sections">
@@ -719,7 +722,7 @@
   }
   .same-pill {
     font-size: 12px;
-    color: #3fb950;
+    color: var(--ok);
   }
   .grow {
     flex: 1;

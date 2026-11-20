@@ -3,6 +3,7 @@
   // so this works the same for a 10-line file and a 10-million-line file.
   import { onMount, tick } from 'svelte';
   import { CHANGED, fetchRows, nav, overview, type Cell, type Hit, type Row, type Summary } from '$lib/api';
+  import { themeColor } from '$lib/theme';
 
   let {
     summary,
@@ -24,7 +25,14 @@
   } = $props();
 
   const MAP_W = 14;
-  const MAP_COLORS = ['', '#d29922', '#3fb950', '#f85149'];
+  // Changed / added / removed, in the current theme's colours. Read again when the theme changes.
+  const mapColors = () => ['', themeColor('chg-s'), themeColor('add-s'), themeColor('del-s')];
+  let lookChanges = $state(0);
+  $effect(() => {
+    const bump = () => lookChanges++;
+    window.addEventListener('sbs-look', bump);
+    return () => window.removeEventListener('sbs-look', bump);
+  });
 
   let viewport: HTMLDivElement;
   let mapEl: HTMLDivElement;
@@ -115,6 +123,8 @@
   });
   $effect(() => {
     if (!canvas || !height) return;
+    void lookChanges; // draw again in the new colours after a theme change
+    const colors = mapColors();
     const dpr = window.devicePixelRatio || 1;
     canvas.width = MAP_W * dpr;
     canvas.height = height * dpr;
@@ -124,7 +134,7 @@
     const step = height / Math.max(map.length, 1);
     map.forEach((k, i) => {
       if (!k) return;
-      ctx.fillStyle = MAP_COLORS[k];
+      ctx.fillStyle = colors[k];
       ctx.fillRect(3, i * step, MAP_W - 6, Math.max(2, step));
     });
   });

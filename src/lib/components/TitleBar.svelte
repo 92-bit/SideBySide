@@ -1,14 +1,22 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window';
-  import type { Theme } from '$lib/theme';
+  import type { Look } from '$lib/theme';
+  import ThemePanel from './ThemePanel.svelte';
 
   type HelpAction = 'check' | 'about' | 'site';
 
   let {
-    theme,
-    onToggleTheme,
+    look,
+    onLook,
     onHelp,
-  }: { theme: Theme; onToggleTheme: () => void; onHelp: (action: HelpAction) => void } = $props();
+  }: {
+    look: Look;
+    onLook: (look: Look, from: { x: number; y: number }) => void;
+    onHelp: (action: HelpAction) => void;
+  } = $props();
+
+  let themeOpen = $state(false);
+  let themeEl = $state<HTMLDivElement>();
 
   const win = getCurrentWindow();
   const menus = ['File', 'Edit', 'View', 'Compare'];
@@ -21,6 +29,7 @@
   }
   function onWindowClick(e: MouseEvent) {
     if (helpOpen && helpEl && !helpEl.contains(e.target as Node)) helpOpen = false;
+    if (themeOpen && themeEl && !themeEl.contains(e.target as Node)) themeOpen = false;
   }
   function onWindowKey(e: KeyboardEvent) {
     if (helpOpen && e.key === 'Escape') helpOpen = false;
@@ -56,9 +65,28 @@
 
   <span class="title" data-tauri-drag-region>SideBySide by 92-bit</span>
 
-  <button type="button" class="mode" onclick={onToggleTheme} title="Switch between light and dark">
-    {theme === 'dark' ? '☀ Light' : '☾ Dark'}
-  </button>
+  <div class="theme" bind:this={themeEl}>
+    <button
+      type="button"
+      class="mode"
+      class:open={themeOpen}
+      aria-haspopup="dialog"
+      aria-expanded={themeOpen}
+      title="Theme and light/dark"
+      onclick={() => (themeOpen = !themeOpen)}
+    >
+      <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+        <path
+          d="M12 3a9 9 0 100 18c1.1 0 1.6-.8 1.6-1.6 0-.9-.7-1.3-.7-2.2 0-1 .8-1.7 1.8-1.7H17a4 4 0 004-4c0-4.7-4-8.5-9-8.5z"
+        />
+        <circle cx="7.5" cy="11" r="1" /><circle cx="10" cy="7" r="1" /><circle cx="14.5" cy="7" r="1" />
+      </svg>
+      Theme
+    </button>
+    {#if themeOpen}
+      <ThemePanel {look} onPick={onLook} onClose={() => (themeOpen = false)} />
+    {/if}
+  </div>
 
   <div class="wc">
     <button type="button" aria-label="Minimize" onclick={() => win.minimize()}>
@@ -153,19 +181,36 @@
     color: var(--faint);
     pointer-events: none;
   }
-  .mode {
+  .theme {
     position: relative;
-    z-index: 1;
+    z-index: 2;
     margin-left: auto;
+  }
+  .mode {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     background: none;
     border: 1px solid var(--border-2);
     color: var(--fg-strong);
     border-radius: 5px;
     padding: 2px 10px;
     cursor: pointer;
+    transition: transform 0.16s cubic-bezier(0.23, 1, 0.32, 1);
   }
-  .mode:hover {
+  .mode svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .mode:hover,
+  .mode.open {
     background: var(--hover);
+  }
+  .mode:active {
+    transform: scale(0.97);
   }
   .wc {
     position: relative;

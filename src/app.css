@@ -1,71 +1,113 @@
-/* SideBySide colors. "dark" is the Midnight style, "light" is its daytime version. */
-:root,
-:root[data-theme='dark'] {
-  --bg: #1b1d22;
-  --bg-chrome: #131418;
-  --bg-raised: #202329;
-  --fg: #c9ccd3;
-  --fg-strong: #e6e8ec;
-  --muted: #7d828c;
-  --faint: #5d626d;
-  --border: #2a2d34;
-  --border-2: #2f333b;
-  --hover: #262931;
-  --accent: #7aa2f7;
-  --accent-bg: #283350;
-  --accent-border: #3d4f80;
-  --accent-fg: #c8d6ff;
-  --on-accent: #0f1320;
-  --status-bg: #34436e;
-  --status-fg: #e6e8ff;
-  --close-hover: #c42b1c;
-  --add: rgba(46, 160, 67, 0.18);
-  --del: rgba(248, 81, 73, 0.16);
-  --chg: rgba(210, 153, 34, 0.13);
-  --mark: rgba(210, 153, 34, 0.45);
-  --fill-a: #1b1d22;
-  --fill-b: #23262c;
-  --ln-fg: #4f5562;
-  --ln-hot: #8b909a;
-  --ln-bg: #181a1f;
-  --map-bg: #16181c;
-  --thumb: rgba(255, 255, 255, 0.13);
-  --error: #f85149;
+/* SideBySide colours.
+   The --t-* variables are the theme. theme.ts sets them for the chosen theme (src/lib/themes.ts);
+   the values below are Aurora, used only until then. The other names are what the screens use. */
+:root {
+  --t-bg: #0a0c13;
+  --t-card: #11141d;
+  --t-card2: #151927;
+  --t-line: rgba(255,255,255,.07);
+  --t-line2: rgba(255,255,255,.11);
+  --t-fg: #c3c8d6;
+  --t-strong: #f2f4fa;
+  --t-muted: #7a8196;
+  --t-faint: #4a5064;
+  --t-acc: #8b9cff;
+  --t-acc2: #5eead4;
+  --t-acc-bg: rgba(139,156,255,.14);
+  --t-on-acc: #0b0e1c;
+  --t-add: rgba(74,222,128,.10);
+  --t-add-s: #4ade80;
+  --t-del: rgba(251,113,133,.10);
+  --t-del-s: #fb7185;
+  --t-chg: rgba(251,191,36,.08);
+  --t-chg-s: #fbbf24;
+  --t-mark: rgba(251,191,36,.30);
+  --t-stripe: rgba(255,255,255,.035);
+  --t-island: rgba(22,26,40,.72);
+  --t-glow1: rgba(139,156,255,.30);
+  --t-glow2: rgba(94,234,212,.18);
+  --t-k: #9fb0ff;
+  --t-s: #f5b97a;
+  --t-num: #5eead4;
+  --t-sec: #c4a7ff;
+  --t-cmc: #5b6178;
   color-scheme: dark;
 }
-
 :root[data-theme='light'] {
-  --bg: #ffffff;
-  --bg-chrome: #eef0f3;
-  --bg-raised: #f7f8fa;
-  --fg: #383a42;
-  --fg-strong: #24262c;
-  --muted: #6b707a;
-  --faint: #9aa0a6;
-  --border: #e3e4e8;
-  --border-2: #d6d9df;
-  --hover: #e2e4e9;
-  --accent: #3b5bdb;
-  --accent-bg: #e7ecff;
-  --accent-border: #b6c3f5;
-  --accent-fg: #2f4ac0;
-  --on-accent: #ffffff;
-  --status-bg: #3b5bdb;
-  --status-fg: #ffffff;
-  --close-hover: #c42b1c;
-  --add: rgba(46, 160, 67, 0.14);
-  --del: rgba(220, 50, 50, 0.11);
-  --chg: rgba(210, 153, 34, 0.14);
-  --mark: rgba(230, 170, 30, 0.45);
-  --fill-a: #f7f7f9;
-  --fill-b: #ececf0;
-  --ln-fg: #a8acb6;
-  --ln-hot: #6b707a;
-  --ln-bg: #f7f7f9;
-  --map-bg: #eef0f3;
-  --thumb: rgba(0, 0, 0, 0.13);
-  --error: #c62828;
+  --t-bg: #eef0f7;
+  --t-card: #ffffff;
+  --t-card2: #f7f8fc;
+  --t-line: rgba(20,24,60,.08);
+  --t-line2: rgba(20,24,60,.13);
+  --t-fg: #3a3f50;
+  --t-strong: #141826;
+  --t-muted: #6c7286;
+  --t-faint: #a5aabb;
+  --t-acc: #4f5bd5;
+  --t-acc2: #0d9488;
+  --t-acc-bg: rgba(79,91,213,.10);
+  --t-on-acc: #ffffff;
+  --t-add: rgba(22,163,74,.09);
+  --t-add-s: #16a34a;
+  --t-del: rgba(225,29,72,.08);
+  --t-del-s: #e11d48;
+  --t-chg: rgba(217,119,6,.08);
+  --t-chg-s: #d97706;
+  --t-mark: rgba(245,158,11,.30);
+  --t-stripe: rgba(20,24,60,.04);
+  --t-island: rgba(255,255,255,.75);
+  --t-glow1: rgba(79,91,213,.20);
+  --t-glow2: rgba(13,148,136,.14);
+  --t-k: #4f5bd5;
+  --t-s: #b45309;
+  --t-num: #0f766e;
+  --t-sec: #7c3aed;
+  --t-cmc: #9aa0b3;
   color-scheme: light;
+}
+
+:root {
+  --bg: var(--t-card);
+  --bg-chrome: var(--t-bg);
+  --bg-raised: var(--t-card2);
+  --fg: var(--t-fg);
+  --fg-strong: var(--t-strong);
+  --muted: var(--t-muted);
+  --faint: var(--t-faint);
+  --border: var(--t-line);
+  --border-2: var(--t-line2);
+  --hover: var(--t-line);
+  --accent: var(--t-acc);
+  --accent-bg: var(--t-acc-bg);
+  --accent-border: color-mix(in srgb, var(--t-acc) 45%, transparent);
+  --accent-fg: var(--t-acc);
+  --on-accent: var(--t-on-acc);
+  --status-bg: var(--t-bg);
+  --status-fg: var(--t-muted);
+  --close-hover: #c42b1c;
+  --add: var(--t-add);
+  --del: var(--t-del);
+  --chg: var(--t-chg);
+  --mark: var(--t-mark);
+  --fill-a: var(--t-card);
+  --fill-b: var(--t-stripe);
+  --ln-fg: var(--t-faint);
+  --ln-hot: var(--t-muted);
+  --ln-bg: var(--t-card);
+  --map-bg: var(--t-bg);
+  --thumb: var(--t-line2);
+  --error: var(--t-del-s);
+  --ok: var(--t-add-s);
+}
+
+/* The theme change reveal (see changeLook in theme.ts) draws the new look on top of the old one. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-new(root) {
+  z-index: 2;
 }
 
 *,
@@ -102,18 +144,12 @@ button {
   flex: none;
 }
 .tag.old {
-  background: rgba(248, 81, 73, 0.16);
-  color: #e5534b;
+  background: var(--t-del);
+  color: var(--t-del-s);
 }
 .tag.new {
-  background: rgba(46, 160, 67, 0.18);
-  color: #3fb950;
-}
-:root[data-theme='light'] .tag.old {
-  color: #c62828;
-}
-:root[data-theme='light'] .tag.new {
-  color: #1a7f37;
+  background: var(--t-add);
+  color: var(--t-add-s);
 }
 
 :focus-visible {

@@ -6,14 +6,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>SideBySide by 92-bit</title>
     <script>
-      // Pick the saved theme before anything is drawn, so the window never flashes the wrong colors.
+      // Put the saved colours on screen before anything is drawn, so the window never flashes the
+      // wrong theme. theme.ts saves this ready-made CSS; with nothing saved, app.css has Aurora.
       (function () {
-        var t = null;
-        try { t = localStorage.getItem('sbs-theme'); } catch (e) {}
-        if (t !== 'dark' && t !== 'light') {
-          t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        var root = document.documentElement;
+        var light = window.matchMedia('(prefers-color-scheme: light)').matches;
+        var saved = null;
+        try { saved = JSON.parse(localStorage.getItem('sbs-look-css') || 'null'); } catch (e) {}
+        if (saved && saved.dark && saved.light) {
+          var shade = saved.mode === 'dark' || saved.mode === 'light' ? saved.mode : light ? 'light' : 'dark';
+          root.style.cssText = saved[shade] + 'color-scheme:' + shade + ';';
+          root.dataset.theme = shade;
+          return;
         }
-        document.documentElement.dataset.theme = t;
+        var old = null; // v0.1.1 and older saved only "dark" or "light"
+        try { old = localStorage.getItem('sbs-theme'); } catch (e) {}
+        root.dataset.theme = old === 'dark' || old === 'light' ? old : light ? 'light' : 'dark';
       })();
     </script>
     %sveltekit.head%
