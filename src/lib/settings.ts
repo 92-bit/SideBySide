@@ -72,3 +72,52 @@ export function saveLive(on: boolean) {
     // not saved this time
   }
 }
+
+const REOPEN_KEY = 'sbs-reopen';
+const SESSION_KEY = 'sbs-last-session';
+/** Reopen the last comparison when SideBySide starts: off unless switched on. */
+export function loadReopen(): boolean {
+  try {
+    return localStorage.getItem(REOPEN_KEY) === 'on';
+  } catch {
+    return false;
+  }
+}
+export function saveReopen(on: boolean) {
+  try {
+    localStorage.setItem(REOPEN_KEY, on ? 'on' : 'off');
+  } catch {
+    // not saved this time
+  }
+}
+
+/** The comparison on screen, remembered so the next start can reopen it. */
+export interface Session {
+  left: string;
+  right: string;
+  ignore: { spaces: boolean; blank: boolean; caseLetters: boolean };
+  place: { top: number; x: number; atEnd: boolean } | null;
+  bookmarks: number[];
+  /** File sizes when it was saved: bookmarks only come back if the files are unchanged. */
+  sizes: [number, number];
+}
+let lastSaved = '';
+export function saveSession(s: Session | null) {
+  const text = s ? JSON.stringify(s) : '';
+  if (text === lastSaved) return; // nothing new (this is called every couple of seconds)
+  lastSaved = text;
+  try {
+    if (s) localStorage.setItem(SESSION_KEY, text);
+    else localStorage.removeItem(SESSION_KEY);
+  } catch {
+    // not saved this time
+  }
+}
+export function loadSession(): Session | null {
+  try {
+    const s = JSON.parse(localStorage.getItem(SESSION_KEY) ?? 'null');
+    return s && typeof s.left === 'string' && typeof s.right === 'string' ? (s as Session) : null;
+  } catch {
+    return null;
+  }
+}

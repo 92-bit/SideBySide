@@ -42,6 +42,11 @@
     loadAutoUpdate,
     loadLive,
     saveLive,
+    loadReopen,
+    saveReopen,
+    loadSession,
+    saveSession,
+    type Session,
     markUpdateChecked,
     updateCheckDue,
   } from '#lib/settings.ts';
@@ -154,9 +159,11 @@
   // If another comparison starts meanwhile, the older result is thrown away.
   let runId = 0;
   /** quiet: a live update. The old result stays on screen (no progress box) and the view keeps its place. */
-  async function run(quiet = false) {
+  /** restore: reopening the last comparison at start (its place, and its bookmarks if the files are unchanged).
+   *  Returns true if the comparison is now on screen. */
+  async function run(quiet = false, restore: Session | null = null): Promise<boolean> {
     const { left, right } = paths;
-    if (!left || !right) return;
+    if (!left || !right) return false;
     const id = ++runId;
     const used = { ...ignore };
     if (quiet) {
@@ -173,7 +180,7 @@
         ignoreBlankLines: used.blank,
       });
       if (id === runId) {
-        keepPlace = quiet ? (view?.getPlace() ?? null) : null;
+        keepPlace = quiet ? (view?.getPlace() ?? null) : (restore?.place ?? null);
         summary = s;
         shownIgnore = used;
         filesChanged = false;
@@ -185,10 +192,12 @@
           bookmarks = bookmarks.filter((b) => b < s.totalRows); // (kept: a growing log keeps its rows)
         } else {
           updatedAt = null;
-          bookmarks = [];
+          const same = restore && s.left.size === restore.sizes[0] && s.right.size === restore.sizes[1];
+          bookmarks = same ? restore.bookmarks.filter((b) => b < s.totalRows) : [];
           pasteMode = false;
           if (!isPasted(left)) recent = addRecent(left, right);
         }
+        return true;
       }
     } catch (e) {
       const msg = String(e);
@@ -213,6 +222,43 @@
         updating = false;
         stopProgress();
       }
+    }
+    return false;
+  }
+
+  // ---- Reopen the last comparison at start ----
+  let reopen = $state(false);
+  function toggleReopen() {
+    reopen = !reopen;
+    saveReopen(reopen);
+  }
+  // Remember the comparison on screen (files, options, place, bookmarks) every couple of seconds.
+  $effect(() => {
+    const t = setInterval(() => {
+      if (!summary || busy || isPasted(summary.left.path)) return;
+      saveSession({
+        left: summary.left.path,
+        right: summary.right.path,
+        ignore: { ...shownIgnore },
+        place: view?.getPlace() ?? null,
+        bookmarks: [...bookmarks],
+        sizes: [summary.left.size, summary.right.size],
+      });
+    }, 2000);
+    return () => clearInterval(t);
+  });
+  async function reopenLast() {
+    const last = loadSession();
+    if (!last) return;
+    paths = { left: last.left, right: last.right };
+    ignore = { ...last.ignore };
+    if (!(await run(false, last)) && error) {
+      const gone = /^Could not open "(.+?)":.*(cannot find|not find|No such file)/i.exec(error);
+      error = gone
+        ? `The last comparison couldn't be reopened: "${gone[1]}" was moved or deleted.`
+        : `The last comparison couldn't be reopened. ${error}`;
+      paths = { left: null, right: null };
+      ignore = { spaces: false, blank: false, caseLetters: false };
     }
   }
 
@@ -270,6 +316,7 @@
   /** "New" in the top bar: back to the start screen. */
   function newCompare() {
     closeAll();
+    saveSession(null); // the start screen is where you left off now
     pasteMode = false;
     recentOpen = false;
   }
@@ -400,7 +447,14 @@
     // Start listening first, then pick up what is already waiting; otherwise a file that
     // arrives in between (e.g. the 2nd of two right-clicked files) would be missed.
     const unlistenFiles = listen('files-arrived', () => takeFiles().then(receiveFiles));
-    unlistenFiles.then(() => takeFiles()).then(receiveFiles);
+    reopen = loadReopen();
+    unlistenFiles
+      .then(() => takeFiles())
+      .then((files) => {
+        // Files given at start always win; otherwise reopen the last comparison if that is switched on.
+        if (files.length) receiveFiles(files);
+        else if (reopen) reopenLast();
+      });
 
     // Drag and drop: drop on the left or right half, or drop two files at once.
     // (The middle of the two panes, not of the window: the icon bar on the left moves them over.)
@@ -606,6 +660,10 @@
                 <RecentList items={recent} limit={6} cards onOpen={openRecent} onRemove={(r) => (recent = removeRecent(r))} />
               </div>
             {/if}
+            <button type="button" class="reopen rise" style:--i={4} role="switch" aria-checked={reopen} onclick={toggleReopen}>
+              <span class="knob" aria-hidden="true"></span>
+              Reopen my last comparison when SideBySide starts
+            </button>
           </section>
         {/if}
 
@@ -1325,6 +1383,57 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--t-faint);
+  }
+  /* The "reopen at start" switch under Recent. */
+  .reopen {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    border: 0;
+    background: none;
+    padding: 4px 6px;
+    border-radius: 8px;
+    color: var(--t-muted);
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: color 0.15s ease;
+  }
+  .reopen:hover,
+  .reopen[aria-checked='true'] {
+    color: var(--t-fg);
+  }
+  .reopen .knob {
+    position: relative;
+    width: 28px;
+    height: 16px;
+    flex: none;
+    border-radius: 999px;
+    background: var(--t-line2);
+    transition: background-color 0.18s ease;
+  }
+  .reopen .knob::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--t-card);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    transition: transform 0.18s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .reopen[aria-checked='true'] .knob {
+    background: var(--t-acc);
+  }
+  .reopen[aria-checked='true'] .knob::after {
+    transform: translateX(12px);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .reopen .knob,
+    .reopen .knob::after {
+      transition: none;
+    }
   }
   /* Opening the start screen: its parts rise in one after another. */
   .rise {
