@@ -16,6 +16,8 @@ export interface Summary {
   added: number;
   removed: number;
   changed: number;
+  /** Lines that moved to another place unchanged. */
+  moved: number;
   millis: number;
 }
 
@@ -32,8 +34,11 @@ export interface Cell {
 
 /** k: 0 = same, 1 = changed, 2 = added, 3 = removed */
 export interface Row {
-  /** 0 = same, 1 = changed, 2 = added, 3 = removed, 4 = folded unchanged rows */
-  k: 0 | 1 | 2 | 3 | 4;
+  /** 0 = same, 1 = changed, 2 = added, 3 = removed, 4 = folded unchanged rows,
+   *  5 = moved away from here (left), 6 = moved here (right) */
+  k: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+  /** A moved row: its line number on the other side. */
+  m?: number;
   l: Cell | null;
   r: Cell | null;
   /** A folded row: how many unchanged rows it hides. */

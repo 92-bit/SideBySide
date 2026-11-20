@@ -763,6 +763,9 @@ struct Op {
     /// First screen row of this run.
     row: u64,
     same: bool,
+    /// A removed or added block that was moved: the first line (1-based) of the same block on
+    /// the other side. 0 = not moved.
+    mv: u32,
 }
 
 impl Op {
@@ -793,7 +796,7 @@ impl OpsBuilder {
                 return;
             }
         }
-        let op = Op { a: a as u32, b: b as u32, alen: alen as u32, blen: blen as u32, row: self.row, same };
+        let op = Op { a: a as u32, b: b as u32, alen: alen as u32, blen: blen as u32, row: self.row, same, mv: 0 };
         self.row += op.rows();
         self.ops.push(op);
     }
@@ -851,6 +854,7 @@ pub struct Comparison {
     added: u64,
     removed: u64,
     changed: u64,
+    moved: u64,
     millis: u64,
     /// The ignore rules used: their parts aren't marked as changed words either.
     rules: Vec<regex::bytes::Regex>,
@@ -866,6 +870,8 @@ pub struct Summary {
     pub added: u64,
     pub removed: u64,
     pub changed: u64,
+    /// Lines that moved to another place unchanged (not counted as added or removed).
+    pub moved: u64,
     pub millis: u64,
 }
 
@@ -885,7 +891,8 @@ pub struct Cell {
     pub s: Vec<Seg>,
 }
 
-/// One screen row. k: 0 = same, 1 = changed, 2 = added, 3 = removed, 4 = folded (see fold.rs).
+/// One screen row. k: 0 = same, 1 = changed, 2 = added, 3 = removed, 4 = folded (see fold.rs),
+/// 5 = moved away from here (left), 6 = moved here (right).
 #[derive(Debug, Clone, Serialize)]
 pub struct Row {
     pub k: u8,
@@ -894,6 +901,9 @@ pub struct Row {
     /// A folded row: how many unchanged rows it hides.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub f: Option<u64>,
+    /// A moved row (k 5 = moved away, 6 = moved here): its line number on the other side.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub m: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
@@ -925,6 +935,8 @@ pub fn compare(left: &Path, right: &Path, opts: &Options, ctl: &Control) -> Resu
         }
         _ => diff_in_windows(&l.hashes, &r.hashes, ctl, &mut |s, a, al, b, bl| ob.push(s, a, al, b, bl))?,
     }
+    // Moved blocks. (Not with "ignore blank lines": the fingerprints then skip lines.)
+    let moved = if l.map.is_none() && r.map.is_none() { find_moves(&mut ob.ops, &l.hashes, &r.hashes) } else { 0 };
     let (lside, rside) = (l.side, r.side);
 
     let mut blocks = Vec::new();
@@ -932,6 +944,9 @@ pub fn compare(left: &Path, right: &Path, opts: &Options, ctl: &Control) -> Resu
     for (i, op) in ob.ops.iter().enumerate() {
         if !op.same {
             blocks.push(i as u32);
+            if op.mv != 0 {
+                continue; // counted as moved
+            }
             let m = op.alen.min(op.blen) as u64;
             changed += m;
             removed += op.alen as u64 - m;
@@ -950,9 +965,117 @@ pub fn compare(left: &Path, right: &Path, opts: &Options, ctl: &Control) -> Resu
         added,
         removed,
         changed,
+        moved,
         millis: started.elapsed().as_millis() as u64,
         rules: opts.rules.clone(),
     })
+}
+
+/// Shortest block that counts as moved (shorter ones, like a lone "}", would match by chance).
+const MOVE_MIN: u32 = 3;
+
+/// Find blocks that were removed in one place and added, unchanged, in another. A whole added
+/// block is looked for anywhere inside the removed blocks (a moved block often sits next to lines
+/// that were really removed); that part is then split off as its own run. Marks both (Op::mv)
+/// and returns how many lines moved.
+fn find_moves(ops: &mut Vec<Op>, a: &[u64], b: &[u64]) -> u64 {
+    // (Huge removals would make the search slow and use a lot of memory; leave them as they are.)
+    const MAX_REMOVED: u64 = 2_000_000;
+    let removed: u64 = ops.iter().filter(|o| !o.same && o.blen == 0).map(|o| o.alen as u64).sum();
+    if removed == 0 || removed > MAX_REMOVED {
+        return 0;
+    }
+    let key = |h: &[u64]| {
+        let mut x = Xxh3::new();
+        for v in h {
+            x.update(&v.to_le_bytes());
+        }
+        x.digest()
+    };
+    fn lines(h: &[u64], start: u32, len: u32) -> Option<&[u64]> {
+        h.get(start as usize..(start + len) as usize)
+    }
+    // Every place inside a removed block where MOVE_MIN lines start: (block, offset).
+    let mut starts: std::collections::HashMap<u64, Vec<(usize, u32)>> = std::collections::HashMap::new();
+    for (i, o) in ops.iter().enumerate() {
+        if !o.same && o.blen == 0 && o.alen >= MOVE_MIN {
+            for p in 0..=o.alen - MOVE_MIN {
+                if let Some(w) = lines(a, o.a + p, MOVE_MIN) {
+                    starts.entry(key(w)).or_default().push((i, p));
+                }
+            }
+        }
+    }
+    // The fingerprint of an empty line: blank lines at the edges of a block often don't move
+    // with it (they separate it from its neighbours), so they are left out of the search.
+    let empty = Xxh3::new().digest();
+    // Parts of blocks that moved: block -> [(offset, lines, first line on the other side)]
+    let mut taken: std::collections::HashMap<usize, Vec<(u32, u32, u32)>> = std::collections::HashMap::new();
+    let mut moved = 0;
+    for i in 0..ops.len() {
+        let o = ops[i];
+        if o.same || o.alen != 0 || o.blen < MOVE_MIN {
+            continue;
+        }
+        let Some(all) = lines(b, o.b, o.blen) else { continue };
+        let s = all.iter().position(|&h| h != empty).unwrap_or(all.len());
+        let e = all.iter().rposition(|&h| h != empty).map_or(s, |e| e + 1);
+        let len = (e - s) as u32;
+        if len < MOVE_MIN {
+            continue;
+        }
+        let h = &all[s..e];
+        let Some(places) = starts.get(&key(&h[..MOVE_MIN as usize])) else { continue };
+        for &(j, p) in places {
+            let r = ops[j];
+            if p + len > r.alen || lines(a, r.a + p, len) != Some(h) {
+                continue;
+            }
+            let parts = taken.entry(j).or_default();
+            if parts.iter().any(|&(q, n, _)| p < q + n && q < p + len) {
+                continue; // that part already moved somewhere else
+            }
+            parts.push((p, len, o.b + s as u32 + 1));
+            taken.entry(i).or_default().push((s as u32, len, r.a + p + 1));
+            moved += len as u64;
+            break;
+        }
+    }
+    if taken.is_empty() {
+        return 0;
+    }
+    // Split the removed blocks around their moved parts.
+    let mut out = Vec::with_capacity(ops.len() + taken.len() * 2);
+    for (i, o) in ops.iter().enumerate() {
+        let Some(parts) = taken.get_mut(&i) else {
+            out.push(*o);
+            continue;
+        };
+        parts.sort_unstable();
+        // (A removed block is split on the left side, an added one on the right.)
+        let removed = o.blen == 0;
+        let piece = |from: u32, len: u32, mv: u32| {
+            if removed {
+                Op { a: o.a + from, alen: len, row: o.row + from as u64, mv, ..*o }
+            } else {
+                Op { b: o.b + from, blen: len, row: o.row + from as u64, mv, ..*o }
+            }
+        };
+        let size = if removed { o.alen } else { o.blen };
+        let mut at = 0;
+        for &(p, n, other) in parts.iter() {
+            if p > at {
+                out.push(piece(at, p - at, 0));
+            }
+            out.push(piece(p, n, other));
+            at = p + n;
+        }
+        if at < size {
+            out.push(piece(at, size - at, 0));
+        }
+    }
+    *ops = out;
+    moved
 }
 
 /// A run of lines inside a window: (old start, old length, new start, new length, same?)
@@ -1153,6 +1276,7 @@ impl Comparison {
             added: self.added,
             removed: self.removed,
             changed: self.changed,
+            moved: self.moved,
             millis: self.millis,
         }
     }
@@ -1168,6 +1292,8 @@ impl Comparison {
             return Err(CHANGED.into());
         }
         let mut plan: Vec<(u8, Option<u32>, Option<u32>)> = Vec::with_capacity((end - start) as usize);
+        // For moved blocks: the line (1-based) where each row's text is on the other side.
+        let mut moved_to: Vec<Option<u32>> = Vec::with_capacity((end - start) as usize);
         let mut i = self.ops.partition_point(|o| o.row + o.rows() <= start);
         let mut r = start;
         while r < end && i < self.ops.len() {
@@ -1182,11 +1308,14 @@ impl Comparison {
                 } else {
                     match (l, rr) {
                         (Some(_), Some(_)) => 1,
+                        (None, Some(_)) if op.mv != 0 => 6,
                         (None, Some(_)) => 2,
+                        _ if op.mv != 0 => 5,
                         _ => 3,
                     }
                 };
                 plan.push((kind, l, rr));
+                moved_to.push((op.mv != 0).then(|| op.mv + k));
                 r += 1;
             }
             i += 1;
@@ -1210,7 +1339,7 @@ impl Comparison {
         let text = |v: &[String], first: u32, n: u32| v.get((n - first) as usize).cloned().unwrap_or_default();
 
         let mut out = Vec::with_capacity(plan.len());
-        for (k, l, r) in plan {
+        for ((k, l, r), m) in plan.into_iter().zip(moved_to) {
             let lt = l.map(|n| text(&ltext, lfirst, n));
             let rt = r.map(|n| text(&rtext, rfirst, n));
             let (ls, rs) = match (lt, rt) {
@@ -1227,6 +1356,7 @@ impl Comparison {
             };
             out.push(Row {
                 f: None,
+                m,
                 k,
                 l: l.zip(ls).map(|(n, s)| Cell { n: n + 1, s }),
                 r: r.zip(rs).map(|(n, s)| Cell { n: n + 1, s }),
@@ -1375,7 +1505,7 @@ impl Comparison {
             let first = to_screen(op.row);
             let s = (first as u128 * n as u128 / t) as usize;
             let e = (((first + op.rows()) as u128 * n as u128 + t - 1) / t) as usize;
-            let kind = if op.alen == 0 { 2 } else if op.blen == 0 { 3 } else { 1 };
+            let kind = if op.mv != 0 { 4 } else if op.alen == 0 { 2 } else if op.blen == 0 { 3 } else { 1 };
             for b in s..e.max(s + 1).min(n) {
                 if out[b] == 0 || kind == 1 {
                     out[b] = kind;
@@ -1564,6 +1694,33 @@ mod tests {
         assert!(l.iter().any(|s| s.h && s.t.contains("light")));
         assert!(l.iter().any(|s| !s.h && s.t.contains("theme")));
         assert_eq!(rows[1].k, 0);
+    }
+
+    #[test]
+    fn moved_blocks_are_found() {
+        // "fn b" (3 lines) moved from before the c lines to the end; "x" next to it was removed.
+        let a = "fn a\nfn b 1\nfn b 2\nfn b 3\nx\nc1\nc2\nc3\nc4\nc5\n";
+        let b = "fn a\nc1\nc2\nc3\nc4\nc5\nfn b 1\nfn b 2\nfn b 3\n";
+        let c = cmp(a, b, Options::default());
+        let s = c.summary();
+        assert_eq!((s.moved, s.added, s.removed), (3, 0, 1));
+        let rows = c.rows(0, 100).unwrap();
+        let gone: Vec<(u32, Option<u32>)> = rows.iter().filter(|r| r.k == 5).map(|r| (r.l.as_ref().unwrap().n, r.m)).collect();
+        let here: Vec<(u32, Option<u32>)> = rows.iter().filter(|r| r.k == 6).map(|r| (r.r.as_ref().unwrap().n, r.m)).collect();
+        assert_eq!(gone, vec![(2, Some(7)), (3, Some(8)), (4, Some(9))]);
+        assert_eq!(here, vec![(7, Some(2)), (8, Some(3)), (9, Some(4))]);
+        // too short to count as moved
+        let s = cmp("a\nb\nc\n", "c\na\nb\n", Options::default()).summary();
+        assert_eq!(s.moved, 0);
+        // a function moved to the top, its blank separator line on the other side of it
+        let a = "import os\n\ndef load():\n    read\n\ndef save():\n    write\n    print\n\ndef main():\n    text = load()\n    save(text)\n";
+        let b = "import os\n\ndef main():\n    text = load()\n    save(text)\n\ndef load():\n    read\n\ndef save():\n    write\n";
+        let s = cmp(a, b, Options::default()).summary();
+        assert_eq!((s.moved, s.removed), (3, 2), "{s:?}"); // "print" and one blank line were removed
+        let rows = cmp(a, b, Options::default()).rows(0, 100).unwrap();
+        let text_of = |c: &Option<Cell>| c.as_ref().map(|c| c.s.iter().map(|x| x.t.as_str()).collect::<String>());
+        let here: Vec<String> = rows.iter().filter(|r| r.k == 6).filter_map(|r| text_of(&r.r)).collect();
+        assert_eq!(here, vec!["def main():", "    text = load()", "    save(text)"]);
     }
 
     #[test]

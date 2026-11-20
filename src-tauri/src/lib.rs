@@ -145,7 +145,7 @@ async fn rows(state: tauri::State<'_, AppState>, start: u64, count: u32) -> Resu
     while s < end {
         match f.at(s) {
             At::Fold(i) => {
-                out.push(Row { k: 4, l: None, r: None, f: Some(f.len(i)) });
+                out.push(Row { k: 4, l: None, r: None, f: Some(f.len(i)), m: None });
                 s += 1;
             }
             At::Real(r) => {

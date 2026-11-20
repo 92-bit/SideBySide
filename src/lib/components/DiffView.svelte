@@ -19,6 +19,7 @@
     place = null,
     bookmarks = $bindable([]),
     onOpenFold,
+    onGotoLine,
   }: {
     summary: Summary;
     fontSize?: number;
@@ -32,6 +33,8 @@
     onFilesChanged?: () => void;
     /** A "⋯ unchanged lines" row was clicked (see fold.rs). */
     onOpenFold?: (row: number) => void;
+    /** "Moved to line 120" was clicked: go to that line (left = in the original file). */
+    onGotoLine?: (left: boolean, line: number) => void;
     /** After a live update: where the view was before (see getPlace). */
     place?: { top: number; x: number; atEnd: boolean } | null;
     /** Bookmarked screen rows (kept by the page, so they survive live updates). */
@@ -40,7 +43,7 @@
 
   const MAP_W = 14;
   // Changed / added / removed, in the current theme's colours. Read again when the theme changes.
-  const mapColors = () => ['', themeColor('chg-s'), themeColor('add-s'), themeColor('del-s')];
+  const mapColors = () => ['', themeColor('chg-s'), themeColor('add-s'), themeColor('del-s'), themeColor('sec')];
   let lookChanges = $state(0);
   $effect(() => {
     const bump = () => lookChanges++;
@@ -481,6 +484,7 @@
       {@const r = rowsTop + i}
       {@const starts = row.k !== 0 && (i === 0 ? r === 0 : rows[i - 1].k === 0) /* changed + added lines together are one difference */}
       {@const isCur = current !== null && r === current.row}
+      {@const moveStart = (row.k === 5 || row.k === 6) && (i === 0 || rows[i - 1].k !== row.k)}
       {#if row.k === 4}
         <div class="row k4">
           <button type="button" class="fold" onclick={() => onOpenFold?.(r)} title="Show these lines">
@@ -492,13 +496,13 @@
         <div class="row il k{row.k}" class:bm={marked.has(r)} class:cur={current !== null && r >= current.row && r < current.row + current.rows} class:found={flashRow === r}>
           <button type="button" class="ln" tabindex="-1" title="{marked.has(r) ? 'Remove the bookmark' : 'Bookmark this line (Ctrl+B)'}" onclick={() => toggleMark(r)}>{row.l ? row.l.n : ''}</button>
           <button type="button" class="ln r" tabindex="-1" title="{marked.has(r) ? 'Remove the bookmark' : 'Bookmark this line (Ctrl+B)'}" onclick={() => toggleMark(r)}>{row.r ? row.r.n : ''}</button>
-          <span class="sign" aria-hidden="true">{row.k === 2 ? '+' : row.k === 3 ? '−' : row.k === 1 ? '±' : ''}</span>
+          <span class="sign" aria-hidden="true">{row.k === 2 ? '+' : row.k === 3 ? '−' : row.k === 1 ? '±' : row.k === 5 ? '↗' : row.k === 6 ? '↘' : ''}</span>
           <span class="tx">{#if m}<span class="in" style:transform="translateX({-scrollX}px)">{@render inlineText(m, row.r ? langR : langL)}</span>{/if}</span>
         </div>
       {:else}
       <div class="row k{row.k}" class:bm={marked.has(r)} class:cur={current !== null && r >= current.row && r < current.row + current.rows} class:found={flashRow === r}>
         <button type="button" class="ln" tabindex="-1" title="{marked.has(r) ? 'Remove the bookmark' : 'Bookmark this line (Ctrl+B)'}" onclick={() => toggleMark(r)}>{row.l ? row.l.n : ''}</button>
-        <span class="tx" class:fill={!row.l}>{#if row.l}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.l, langL)}</span>{/if}</span>
+        <span class="tx" class:fill={!row.l}>{#if row.l}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.l, langL)}</span>{:else if row.k === 6 && moveStart && row.m}<button type="button" class="moved-to" onclick={() => onGotoLine?.(true, row.m ?? 1)}>↖ moved here from line {fmtNum(row.m)}</button>{/if}</span>
         <span class="seam">
           {#if starts}
             <button
@@ -512,7 +516,7 @@
           {/if}
         </span>
         <button type="button" class="ln r" tabindex="-1" title="{marked.has(r) ? 'Remove the bookmark' : 'Bookmark this line (Ctrl+B)'}" onclick={() => toggleMark(r)}>{row.r ? row.r.n : ''}</button>
-        <span class="tx" class:fill={!row.r}>{#if row.r}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.r, langR)}</span>{/if}</span>
+        <span class="tx" class:fill={!row.r}>{#if row.r}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.r, langR)}</span>{:else if row.k === 5 && moveStart && row.m}<button type="button" class="moved-to" onclick={() => onGotoLine?.(false, row.m ?? 1)}>moved to line {fmtNum(row.m)} ↘</button>{/if}</span>
       </div>
       {/if}
     {/each}
@@ -665,6 +669,42 @@
   .k3 .ln:first-child {
     box-shadow: inset 2px 0 0 var(--t-del-s);
   }
+  /* Moved blocks: their own colour, with a link to where they went. */
+  .k5 .tx:not(.fill),
+  .k5 .ln:first-child,
+  .k6 .tx:not(.fill),
+  .k6 .ln.r,
+  .row.il.k5 .tx,
+  .row.il.k6 .tx,
+  .row.il.k5 .ln,
+  .row.il.k6 .ln {
+    background: color-mix(in srgb, var(--t-sec) 10%, transparent);
+  }
+  .k5 .ln:first-child,
+  .k6 .ln.r,
+  .row.il.k5 .ln:first-child,
+  .row.il.k6 .ln:first-child {
+    box-shadow: inset 2px 0 0 var(--t-sec);
+    color: var(--t-muted);
+  }
+  .k5 .sign,
+  .k6 .sign {
+    color: var(--t-sec);
+  }
+  .moved-to {
+    margin: 0;
+    padding: 0 8px;
+    border: 1px solid color-mix(in srgb, var(--t-sec) 45%, transparent);
+    border-radius: 999px;
+    background: var(--t-card);
+    color: var(--t-sec);
+    font: 500 11.5px/calc(var(--rh) - 4px) var(--font-ui);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .moved-to:hover {
+    background: color-mix(in srgb, var(--t-sec) 12%, var(--t-card));
+  }
   .tx.fill {
     background: repeating-linear-gradient(135deg, transparent 0 6px, var(--t-stripe) 6px 7px);
   }
@@ -729,6 +769,10 @@
   }
   .pin.p3 {
     border-color: color-mix(in srgb, var(--t-del-s) 70%, transparent);
+  }
+  .pin.p5,
+  .pin.p6 {
+    border-color: color-mix(in srgb, var(--t-sec) 70%, transparent);
   }
   .pin:hover {
     transform: scale(1.25);

@@ -699,6 +699,7 @@
               place={keepPlace}
               bind:bookmarks
               onOpenFold={openFoldAt}
+              onGotoLine={doGoto}
               onFilesChanged={() => (filesChanged = true)}
             />
           {/key}
@@ -798,16 +799,17 @@
       {#if summary.blocks === 0}
         <span class="same">✓ Files are identical{ignore.spaces || ignore.caseLetters || ignore.blank || ignore.rules ? ' (with ignore options)' : ''}</span>
       {:else}
-        {@const parts = summary.changed + summary.added + summary.removed || 1}
+        {@const parts = summary.changed + summary.added + summary.removed + summary.moved || 1}
         {#key summary}
           <span class="stack" aria-hidden="true">
-            <i class="c" style:flex={summary.changed / parts}></i><i class="a" style:flex={summary.added / parts}></i><i class="d" style:flex={summary.removed / parts}></i>
+            <i class="c" style:flex={summary.changed / parts}></i><i class="a" style:flex={summary.added / parts}></i><i class="d" style:flex={summary.removed / parts}></i><i class="m" style:flex={summary.moved / parts}></i>
           </span>
         {/key}
         <b>{fmtNum(summary.blocks)} {summary.blocks === 1 ? 'difference' : 'differences'}</b>
         <span class="lg c">{fmtNum(summary.changed)} changed</span>
         <span class="lg a">{fmtNum(summary.added)} added</span>
         <span class="lg d">{fmtNum(summary.removed)} removed</span>
+        {#if summary.moved}<span class="lg m">{fmtNum(summary.moved)} moved</span>{/if}
       {/if}
     {:else}
       <span>Ready</span>
@@ -1793,6 +1795,10 @@
   .stack .d,
   .lg.d::before {
     background: var(--t-del-s);
+  }
+  .stack .m,
+  .lg.m::before {
+    background: var(--t-sec);
   }
   .lg {
     display: inline-flex;
