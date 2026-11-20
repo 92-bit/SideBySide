@@ -1,7 +1,7 @@
 <script lang="ts">
   // Shows two files side by side. Only the rows on screen are ever loaded,
   // so this works the same for a 10-line file and a 10-million-line file.
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { CHANGED, fetchRows, nav, overview, type Cell, type Hit, type Row, type Summary } from '$lib/api';
 
   let {
@@ -49,17 +49,25 @@
   const maxTop = $derived(Math.max(0, total - visible));
   const thumbH = $derived(height ? Math.max(28, Math.min(height, (height * visible) / Math.max(total, 1))) : 0);
   const thumbY = $derived(maxTop ? (top / maxTop) * (height - thumbH) : 0);
-  const maxX = $derived.by(() => {
-    let longest = 0;
-    for (const r of rows)
-      for (const c of [r.l, r.r])
-        if (c) {
-          let n = 0;
-          for (const s of c.s) n += s.t.length;
-          if (n > longest) longest = n;
-        }
-    const paneW = (width - MAP_W) / 2 - lnW - 16;
-    return Math.max(0, longest * charW - paneW + 24);
+  // How far the text can scroll sideways. The widths are measured on screen, so tabs and
+  // wide characters (Chinese, Japanese, emoji...) are counted at their real size.
+  let longestPx = $state(0);
+  let paneW = $state(0);
+  $effect(() => {
+    void rows, fontSize, width, lnW; // measure again when any of these change
+    tick().then(() => {
+      if (!viewport) return;
+      let w = 0;
+      for (const el of viewport.querySelectorAll<HTMLElement>('.in')) w = Math.max(w, el.offsetWidth);
+      longestPx = w;
+      const tx = viewport.querySelector<HTMLElement>('.tx');
+      paneW = tx ? tx.clientWidth - 10 : 0; // minus the padding on the left
+    });
+  });
+  const maxX = $derived(Math.max(0, longestPx - paneW + 24));
+  // Shorter lines on screen, a wider window or a smaller zoom: don't stay scrolled past the end.
+  $effect(() => {
+    if (scrollX > maxX) scrollX = maxX;
   });
 
   function setTop(t: number) {

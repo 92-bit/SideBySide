@@ -57,6 +57,7 @@
   let error = $state<string | null>(null);
   let current = $state<Hit | null>(null);
   let dropSide = $state<SideName | null>(null);
+  let stageEl = $state<HTMLDivElement>();
   let ignore = $state({ spaces: false, blank: false, caseLetters: false });
   /** The ignore options of the result on screen, so Cancel can put the buttons back. */
   let shownIgnore = { spaces: false, blank: false, caseLetters: false };
@@ -313,7 +314,12 @@
     unlistenFiles.then(() => takeFiles()).then(receiveFiles);
 
     // Drag and drop: drop on the left or right half, or drop two files at once.
-    const sideAt = (x: number): SideName => (x / window.devicePixelRatio < window.innerWidth / 2 ? 'left' : 'right');
+    // (The middle of the two panes, not of the window: the icon bar on the left moves them over.)
+    const sideAt = (x: number): SideName => {
+      const r = stageEl?.getBoundingClientRect();
+      const middle = r && r.width ? r.left + r.width / 2 : window.innerWidth / 2;
+      return x / window.devicePixelRatio < middle ? 'left' : 'right';
+    };
     const unlisten = getCurrentWebview().onDragDropEvent((e) => {
       const p = e.payload;
       if (p.type === 'enter' || p.type === 'over') {
@@ -424,7 +430,7 @@
         </div>
       {/if}
 
-      <div class="stage">
+      <div class="stage" bind:this={stageEl}>
         {#if summary}
           <div class="paths">
             {#each [['left', summary.left], ['right', summary.right]] as const as [side, info] (side)}

@@ -21,7 +21,71 @@ pub struct InstallInfo {
 }
 
 #[cfg(windows)]
-pub use win::{info, install, launch_later, open_installed_later, refresh_registered_version, uninstall};
+pub use win::{info, install, open_installed_later, refresh_registered_version, uninstall};
+
+/// Start `exe` once this program has closed. It's started right away, but told to wait
+/// for this program to exit first (see `wait_for_exit`). Starting it without waiting would
+/// just hand over to this window, because only one SideBySide window is allowed.
+pub fn launch_later(exe: &std::path::Path) -> Result<(), String> {
+    let mut cmd = std::process::Command::new(exe);
+    cmd.arg(format!("{WAIT_FOR_ARG}{}", std::process::id()));
+    if let Some(dir) = exe.parent() {
+        cmd.current_dir(dir);
+    }
+    cmd.spawn().map(|_| ()).map_err(|e| format!("Could not restart SideBySide: {e}"))
+}
+
+/// "--wait-for=<process id>": wait until that process has closed before starting.
+pub const WAIT_FOR_ARG: &str = "--wait-for=";
+
+/// Is the process `pid` still running? (When it can't be told, the answer is yes.)
+pub fn process_running(pid: u32) -> bool {
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+        use windows_sys::Win32::System::Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return false;
+        }
+        let mut code = 0u32;
+        let ok = GetExitCodeProcess(h, &mut code) != 0;
+        CloseHandle(h);
+        !ok || code == STILL_ACTIVE as u32
+    }
+    #[cfg(not(windows))]
+    {
+        !std::path::Path::new("/proc/self").exists() || std::path::Path::new(&format!("/proc/{pid}")).exists()
+    }
+}
+
+/// Wait (up to 30 seconds) until the process `pid` has closed.
+pub fn wait_for_exit(pid: u32) {
+    #[cfg(windows)]
+    unsafe {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject};
+        let h = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
+        if !h.is_null() {
+            WaitForSingleObject(h, 30_000);
+            CloseHandle(h);
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let proc_dir = std::path::PathBuf::from(format!("/proc/{pid}"));
+        if !std::path::Path::new("/proc/self").exists() {
+            std::thread::sleep(std::time::Duration::from_secs(1)); // no /proc (Mac): just wait a moment
+            return;
+        }
+        for _ in 0..300 {
+            if !proc_dir.exists() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+}
 
 #[cfg(windows)]
 mod win {
@@ -138,18 +202,7 @@ mod win {
 
     /// Start the installed copy a moment after this one has closed.
     pub fn open_installed_later() -> Result<(), String> {
-        launch_later(&installed_exe()?)
-    }
-
-    /// Start `exe` a moment after this program has closed. (Starting it right away would
-    /// just hand over to this window, because only one SideBySide window is allowed.)
-    pub fn launch_later(exe: &Path) -> Result<(), String> {
-        Command::new("cmd")
-            .raw_arg(format!("/C ping -n 2 127.0.0.1 >nul & start \"\" \"{}\"", exe.display()))
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn()
-            .map_err(err("Could not restart SideBySide"))?;
-        Ok(())
+        super::launch_later(&installed_exe()?)
     }
 
     /// After an update, show the new version number in Settings → Apps.
@@ -162,9 +215,73 @@ mod win {
         }
     }
 
+    /// Is another SideBySide running from the install folder (not this uninstaller)?
+    fn other_copy_running() -> bool {
+        use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+        use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
+        };
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
+        };
+        let Ok(target) = installed_exe() else { return false };
+        let me = std::process::id();
+        let mut found = false;
+        unsafe {
+            let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if snap == INVALID_HANDLE_VALUE {
+                return false;
+            }
+            let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+            entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+            let mut ok = Process32FirstW(snap, &mut entry) != 0;
+            while ok && !found {
+                let len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
+                let name = String::from_utf16_lossy(&entry.szExeFile[..len]);
+                if entry.th32ProcessID != me && name.eq_ignore_ascii_case("SideBySide.exe") {
+                    let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, entry.th32ProcessID);
+                    if !h.is_null() {
+                        let mut buf = [0u16; 1024];
+                        let mut size = buf.len() as u32;
+                        if QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut size) != 0 {
+                            let path = PathBuf::from(String::from_utf16_lossy(&buf[..size as usize]));
+                            found = same_file(&path, &target);
+                        }
+                        CloseHandle(h);
+                    }
+                }
+                ok = Process32NextW(snap, &mut entry) != 0;
+            }
+            CloseHandle(snap);
+        }
+        found
+    }
+
+    /// Show a Retry / Cancel message. Returns true for Retry.
+    fn ask_retry(text: &str) -> bool {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            IDRETRY, MB_ICONWARNING, MB_RETRYCANCEL, MB_SETFOREGROUND, MessageBoxW,
+        };
+        let wide = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+        let (text, title) = (wide(text), wide("Uninstall SideBySide"));
+        unsafe {
+            MessageBoxW(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), MB_RETRYCANCEL | MB_ICONWARNING | MB_SETFOREGROUND)
+                == IDRETRY
+        }
+    }
+
     /// Remove everything the installer added. Runs without opening a window
     /// (from Windows Settings → Apps → Uninstall).
     pub fn uninstall() {
+        // An open SideBySide window would keep its program file locked, so the folder
+        // couldn't be removed. Ask the user to close it first.
+        while other_copy_running() {
+            if !ask_retry("SideBySide is still open.
+
+Please close it, then click Retry.") {
+                return; // Cancel: change nothing
+            }
+        }
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let desktop: Option<String> = hkcu.open_subkey(UNINSTALL_KEY).ok().and_then(|k| k.get_value("DesktopShortcut").ok());
         let _ = hkcu.delete_subkey_all(MENU_KEY);
@@ -187,15 +304,24 @@ mod win {
         if let Ok(local) = env_dir("LOCALAPPDATA") {
             folders.push(local.join(DATA_FOLDER));
         }
-        let steps: Vec<String> = folders
-            .iter()
-            .map(|d| {
-                let d = d.display();
-                format!("for /l %i in (1,1,10) do @(if exist \"{d}\" (ping -n 3 127.0.0.1 >nul & rmdir /s /q \"{d}\"))")
-            })
-            .collect();
-        let script = format!("/C {}", steps.join(" & "));
-        let _ = Command::new("cmd").raw_arg(script).creation_flags(CREATE_NO_WINDOW).spawn();
+        // The folder paths are handed over as environment variables, so a "%" or "&" in a
+        // folder name can't be mistaken for part of the command.
+        let mut cmd = Command::new("cmd");
+        let mut steps = Vec::new();
+        for (i, d) in folders.iter().enumerate() {
+            let var = format!("SIDEBYSIDE_REMOVE_{i}");
+            cmd.env(&var, d);
+            steps.push(format!(
+                "for /l %i in (1,1,10) do @(if exist \"%{var}%\" (ping -n 3 127.0.0.1 >nul & rmdir /s /q \"%{var}%\"))"
+            ));
+        }
+        // Run the helper from the Temp folder: a program can't delete the folder it runs in,
+        // which matters when the uninstall was started from inside the install folder.
+        let _ = cmd
+            .raw_arg(format!("/C {}", steps.join(" & ")))
+            .current_dir(std::env::temp_dir())
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
     }
 }
 
@@ -214,9 +340,5 @@ pub fn open_installed_later() -> Result<(), String> {
 }
 #[cfg(not(windows))]
 pub fn uninstall() {}
-#[cfg(not(windows))]
-pub fn launch_later(exe: &std::path::Path) -> Result<(), String> {
-    std::process::Command::new(exe).spawn().map(|_| ()).map_err(|e| e.to_string())
-}
 #[cfg(not(windows))]
 pub fn refresh_registered_version(_version: &str) {}

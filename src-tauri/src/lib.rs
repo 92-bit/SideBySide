@@ -212,7 +212,14 @@ pub fn run() {
         return;
     }
 
+    // Started by an update or by "open the installed copy": wait for the old window to close
+    // first, or the single-window rule would hand this start over to it.
+    if let Some(pid) = args.iter().find_map(|a| a.strip_prefix(install::WAIT_FOR_ARG)).and_then(|p| p.parse().ok()) {
+        install::wait_for_exit(pid);
+    }
+
     update::clean_up_old();
+    engine::remove_left_over_copies(install::process_running);
     install::refresh_registered_version(env!("CARGO_PKG_VERSION"));
 
     let cwd = std::env::current_dir().unwrap_or_default();
@@ -258,6 +265,14 @@ pub fn run() {
             check_update,
             install_update
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running SideBySide");
+        .build(tauri::generate_context!())
+        .expect("error while running SideBySide")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                // Let go of the comparison, so converted copies in the Temp folder are removed.
+                if let Ok(mut c) = app.state::<AppState>().current.lock() {
+                    *c = None;
+                }
+            }
+        });
 }

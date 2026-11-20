@@ -91,7 +91,12 @@ fn is_space(b: u8) -> bool {
 // ---------------------------------------------------------------------------
 
 pub struct Side {
+    /// The file the user picked (its name, size and date are what's shown and checked).
     path: PathBuf,
+    /// Where the lines are read from: the file itself, or a converted copy of it.
+    read_from: PathBuf,
+    /// The converted copy, if one was needed (removed when this is dropped).
+    _copy: Option<TempCopy>,
     size: u64,
     /// When the file was last changed, as it was when compared.
     modified: Option<SystemTime>,
@@ -152,7 +157,7 @@ impl Side {
                 (at_line, pos) = (n + 1, next);
             }
         }
-        let mut file = File::open(&self.path)?;
+        let mut file = File::open(&self.read_from)?;
         file.seek(SeekFrom::Start(pos))?;
         let mut r = BufReader::with_capacity(64 * 1024, file);
         let mut buf = Vec::new();
@@ -321,11 +326,182 @@ struct Scanned {
     map: Option<Vec<u32>>,
 }
 
+// ---------------------------------------------------------------------------
+// Other text formats (UTF-16, old Mac line endings)
+// ---------------------------------------------------------------------------
+
+/// A converted copy of a file in the Temp folder. It is removed when no longer needed.
+struct TempCopy(PathBuf);
+
+impl Drop for TempCopy {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum Format {
+    /// Normal text (UTF-8 or plain ASCII): compared as it is.
+    Normal,
+    /// UTF-16, as some Windows programs save it.
+    Utf16 { big_endian: bool },
+    /// Lines end with "\r" only (old Mac files).
+    CrOnly,
+}
+
+/// Look at the start of a file to see how its text is stored.
+fn detect(head: &[u8]) -> Format {
+    if head.starts_with(&[0xFF, 0xFE]) {
+        return Format::Utf16 { big_endian: false };
+    }
+    if head.starts_with(&[0xFE, 0xFF]) {
+        return Format::Utf16 { big_endian: true };
+    }
+    // UTF-16 without a marker: in mostly-English text, every second byte is a zero.
+    let n = head.len().min(8192) & !1;
+    if n >= 16 {
+        let zeros = |first: usize| head[first..n].iter().step_by(2).filter(|&&b| b == 0).count();
+        let (even, odd, half) = (zeros(0), zeros(1), n / 2);
+        if even * 10 < half && odd * 10 >= half * 7 {
+            return Format::Utf16 { big_endian: false };
+        }
+        if odd * 10 < half && even * 10 >= half * 7 {
+            return Format::Utf16 { big_endian: true };
+        }
+    }
+    if memchr(b'\n', head).is_none() && memchr(b'\r', head).is_some() {
+        return Format::CrOnly;
+    }
+    Format::Normal
+}
+
+/// Copy text to `out`, turning a lone "\r" into a line end ("\r\n" stays as it is).
+fn put_text(text: &[u8], pending_cr: &mut bool, out: &mut Vec<u8>) {
+    for &b in text {
+        if *pending_cr {
+            out.push(if b == b'\n' { b'\r' } else { b'\n' });
+            *pending_cr = false;
+        }
+        if b == b'\r' {
+            *pending_cr = true;
+        } else {
+            out.push(b);
+        }
+    }
+}
+
+static COPY_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+/// Remove converted copies left in the Temp folder by a SideBySide that didn't close
+/// normally. Copies of a SideBySide that is still running are kept.
+pub fn remove_left_over_copies(running: impl Fn(u32) -> bool) {
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else { return };
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let pid = name
+            .strip_prefix("SideBySide-")
+            .and_then(|r| r.strip_suffix(".txt"))
+            .and_then(|r| r.split_once('-'))
+            .and_then(|(pid, n)| n.parse::<u32>().ok().and(pid.parse::<u32>().ok()));
+        if let Some(pid) = pid {
+            if pid != std::process::id() && !running(pid) {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+}
+
+/// Write a normal UTF-8 copy of the file (with "\n" line ends) to the Temp folder.
+fn convert(path: &Path, name: &str, format: &Format, ctl: &Control) -> Result<TempCopy, String> {
+    use std::io::{Read, Write};
+    let n = COPY_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let copy = TempCopy(std::env::temp_dir().join(format!("SideBySide-{}-{n}.txt", std::process::id())));
+    let read_err = |e: io::Error| format!("Could not read \"{name}\": {e}");
+    let write_err = |e: io::Error| format!("Could not convert \"{name}\" (Temp folder: {e})");
+
+    let mut input = File::open(path).map_err(read_err)?;
+    let mut output = std::io::BufWriter::with_capacity(READ_BUF, File::create(&copy.0).map_err(write_err)?);
+    let mut buf = vec![0u8; READ_BUF];
+    let mut out = Vec::with_capacity(READ_BUF * 2);
+    let mut pending_cr = false;
+    let mut carry: Vec<u8> = Vec::new(); // a byte left over from the last piece
+    let mut high: Option<u16> = None; // the first half of a character split between pieces
+    let mut first = true;
+    loop {
+        ctl.check()?;
+        let got = input.read(&mut buf).map_err(read_err)?;
+        if got == 0 {
+            break;
+        }
+        out.clear();
+        match format {
+            Format::Utf16 { big_endian } => {
+                carry.extend_from_slice(&buf[..got]);
+                let pairs = carry.len() / 2;
+                let mut units: Vec<u16> = Vec::with_capacity(pairs + 1);
+                units.extend(high.take());
+                units.extend(carry[..pairs * 2].chunks_exact(2).map(|c| {
+                    if *big_endian { u16::from_be_bytes([c[0], c[1]]) } else { u16::from_le_bytes([c[0], c[1]]) }
+                }));
+                carry.drain(..pairs * 2);
+                if matches!(units.last(), Some(0xD800..=0xDBFF)) {
+                    high = units.pop();
+                }
+                let mut text = String::with_capacity(units.len());
+                for c in char::decode_utf16(units) {
+                    let c = c.unwrap_or(char::REPLACEMENT_CHARACTER);
+                    if first && c == '\u{FEFF}' {
+                        first = false; // the invisible marker at the start
+                        continue;
+                    }
+                    first = false;
+                    text.push(c);
+                }
+                put_text(text.as_bytes(), &mut pending_cr, &mut out);
+            }
+            _ => put_text(&buf[..got], &mut pending_cr, &mut out),
+        }
+        output.write_all(&out).map_err(write_err)?;
+    }
+    let mut tail = Vec::new();
+    if high.is_some() || !carry.is_empty() {
+        tail.extend_from_slice("\u{FFFD}".as_bytes()); // a cut-off character at the very end
+    }
+    if pending_cr {
+        tail.push(b'\n');
+    }
+    output.write_all(&tail).map_err(write_err)?;
+    output.flush().map_err(write_err)?;
+    Ok(copy)
+}
+
+/// Scan a file, first converting it to normal text if it's stored in another way.
+fn scan_file(path: &Path, opts: &Options, ctl: &Control, done_before: u64, total: u64) -> Result<Scanned, String> {
+    use std::io::Read;
+    let name = file_name(path);
+    let mut head = Vec::new();
+    File::open(path)
+        .and_then(|f| f.take(READ_BUF as u64).read_to_end(&mut head))
+        .map_err(|e| format!("Could not open \"{name}\": {e}"))?;
+    let format = detect(&head);
+    if format == Format::Normal {
+        return scan(path, &name, opts, ctl, done_before, total);
+    }
+    let meta = std::fs::metadata(path).map_err(|e| format!("Could not read \"{name}\": {e}"))?;
+    let copy = convert(path, &name, &format, ctl)?;
+    let mut s = scan(&copy.0, &name, opts, ctl, done_before, total)?;
+    s.side.path = path.to_path_buf();
+    s.side.size = meta.len();
+    s.side.modified = meta.modified().ok();
+    s.side.read_from = copy.0.clone();
+    s.side._copy = Some(copy);
+    Ok(s)
+}
+
 /// Read a whole file once: fingerprint every line and remember where lines start.
 /// `done_before` and `total` are byte counts used for the progress bar.
 #[allow(unused_assignments)] // the line-end helper always resets its flags, even after the last line
-fn scan(path: &Path, opts: &Options, ctl: &Control, done_before: u64, total: u64) -> Result<Scanned, String> {
-    let name = file_name(path);
+fn scan(path: &Path, name: &str, opts: &Options, ctl: &Control, done_before: u64, total: u64) -> Result<Scanned, String> {
     let file = File::open(path).map_err(|e| format!("Could not open \"{name}\": {e}"))?;
     let meta = file.metadata().map_err(|e| format!("Could not read \"{name}\": {e}"))?;
     let (size, modified) = (meta.len(), meta.modified().ok());
@@ -436,7 +612,16 @@ fn scan(path: &Path, opts: &Options, ctl: &Control, done_before: u64, total: u64
         m.shrink_to_fit();
     }
     long.shrink_to_fit();
-    let side = Side { path: path.to_path_buf(), size, modified, lines: line_no as u32, index, long };
+    let side = Side {
+        path: path.to_path_buf(),
+        read_from: path.to_path_buf(),
+        _copy: None,
+        size,
+        modified,
+        lines: line_no as u32,
+        index,
+        long,
+    };
     Ok(Scanned { side, hashes, map })
 }
 
@@ -634,8 +819,8 @@ pub fn compare(left: &Path, right: &Path, opts: &Options, ctl: &Control) -> Resu
     let started = Instant::now();
     let size_of = |p: &Path| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
     let total = size_of(left) + size_of(right);
-    let l = scan(left, opts, ctl, 0, total)?;
-    let r = scan(right, opts, ctl, l.side.size, total)?;
+    let l = scan_file(left, opts, ctl, 0, total)?;
+    let r = scan_file(right, opts, ctl, l.side.size, total)?;
 
     let mut ob = OpsBuilder::default();
     match (&l.map, &r.map) {
@@ -1242,6 +1427,55 @@ mod tests {
         assert!(c.rows(0, 10).unwrap().is_empty());
         let c = cmp("", "x\n", Options::default());
         assert_eq!(c.summary().added, 1);
+    }
+
+    fn utf16(text: &str, big_endian: bool, marker: bool) -> Vec<u8> {
+        let mut v = Vec::new();
+        let units = marker.then_some(0xFEFFu16).into_iter().chain(text.encode_utf16());
+        for u in units {
+            v.extend_from_slice(&if big_endian { u.to_be_bytes() } else { u.to_le_bytes() });
+        }
+        v
+    }
+
+    #[test]
+    fn utf16_files_are_compared_like_normal_text() {
+        let s = "caf\u{e9} \u{1F600}\r\nline two\r\nend\r\n";
+        for (be, marker) in [(false, true), (true, true), (false, false), (true, false)] {
+            let c = cmp_paths(&tmp(&utf16(s, be, marker)), &tmp(s.as_bytes()), Options::default()).unwrap();
+            assert_eq!(c.summary().blocks, 0, "big_endian={be} marker={marker}");
+            assert_eq!(text(&c.rows(0, 1).unwrap()[0].l), "caf\u{e9} \u{1F600}");
+            assert_eq!(c.left.lines, 3);
+        }
+    }
+
+    #[test]
+    fn utf16_characters_split_between_pieces() {
+        // Big enough to be read in several pieces, with 4-byte characters at every position.
+        let line = "x\u{1F600}y\u{e9}\n";
+        let s: String = (0..60_000).map(|i| if i % 3 == 0 { format!("a{line}") } else { line.to_string() }).collect();
+        let c = cmp_paths(&tmp(&utf16(&s, false, true)), &tmp(s.as_bytes()), Options::default()).unwrap();
+        assert_eq!(c.summary().blocks, 0);
+    }
+
+    #[test]
+    fn old_mac_line_endings() {
+        let c = cmp_paths(&tmp(b"a\rb\rc\r"), &tmp(b"a\nb\nc\n"), Options::default()).unwrap();
+        assert_eq!(c.summary().blocks, 0);
+        assert_eq!(c.left.lines, 3);
+        assert_eq!(text(&c.rows(1, 1).unwrap()[0].l), "b");
+    }
+
+    #[test]
+    fn converted_copy_is_removed_afterwards() {
+        let a = tmp(&utf16("one\ntwo\n", false, true));
+        let c = cmp_paths(&a, &tmp(b"one\ntwo\n"), Options::default()).unwrap();
+        let copy = c.left.read_from.clone();
+        assert!(copy != a && copy.exists());
+        assert_eq!(c.left.info().path, a.to_string_lossy());
+        assert_eq!(c.left.info().size, std::fs::metadata(&a).unwrap().len());
+        drop(c);
+        assert!(!copy.exists());
     }
 
     #[test]
