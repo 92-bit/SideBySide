@@ -10,6 +10,7 @@
   let {
     summary,
     fontSize = 13,
+    inline = false,
     query = '',
     matchCase = false,
     onCurrent,
@@ -21,6 +22,8 @@
   }: {
     summary: Summary;
     fontSize?: number;
+    /** One column instead of two: removed words struck through, added words underlined, side by side in the line. */
+    inline?: boolean;
     query?: string;
     matchCase?: boolean;
     onCurrent: (hit: Hit | null) => void;
@@ -181,6 +184,61 @@
   function toggleMark(row: number) {
     bookmarks = marked.has(row) ? bookmarks.filter((b) => b !== row) : [...bookmarks, row].sort((a, b) => a - b);
   }
+  // ---- Inline view: one line holding both sides ----
+  type Kind = 'eq' | 'del' | 'ins';
+  /** A changed row as one line: the parts both sides share once, then what was removed and added. */
+  function mergeCells(l: Cell, r: Cell): { cell: Cell; kinds: Kind[] } {
+    const segs: { t: string; h: boolean }[] = [];
+    const kinds: Kind[] = [];
+    const put = (t: string, k: Kind) => {
+      if (!t) return;
+      if (kinds.length && kinds[kinds.length - 1] === k) segs[segs.length - 1].t += t;
+      else {
+        segs.push({ t, h: k !== 'eq' });
+        kinds.push(k);
+      }
+    };
+    let [i, lo, j, ro] = [0, 0, 0, 0];
+    while (i < l.s.length || j < r.s.length) {
+      const a = l.s[i];
+      const b = r.s[j];
+      if (a && (a.h || !b)) {
+        put(a.t.slice(lo), a.h ? 'del' : 'eq');
+        i++;
+        lo = 0;
+      } else if (b && (b.h || !a)) {
+        put(b.t.slice(ro), b.h ? 'ins' : 'eq');
+        j++;
+        ro = 0;
+      } else {
+        // Both sides are in a shared part: it is the same text, so take it once.
+        const n = Math.min(a.t.length - lo, b.t.length - ro);
+        put(a.t.slice(lo, lo + n), 'eq');
+        lo += n;
+        ro += n;
+        if (lo >= a.t.length) [i, lo] = [i + 1, 0];
+        if (ro >= b.t.length) [j, ro] = [j + 1, 0];
+      }
+    }
+    // Mostly rewritten: mixing old and new words would be hard to read, so show all of the old
+    // line (struck through) and then all of the new one.
+    const same = segs.reduce((n, s, k) => n + (kinds[k] === 'eq' ? s.t.length : 0), 0);
+    const lt = l.s.reduce((n, s) => n + s.t.length, 0);
+    const rt = r.s.reduce((n, s) => n + s.t.length, 0);
+    if (same < Math.max(lt, rt) * 0.5) {
+      const old = l.s.map((s) => s.t).join('');
+      const now = r.s.map((s) => s.t).join('').trimStart(); // (its indent is already shown by the old part)
+      return { cell: { n: r.n, s: [{ t: old, h: true }, { t: ' ', h: false }, { t: now, h: true }] }, kinds: ['del', 'eq', 'ins'] };
+    }
+    return { cell: { n: r.n, s: segs }, kinds };
+  }
+  function inlineOf(row: Row): { cell: Cell; kinds: Kind[] } | null {
+    if (row.l && row.r) return row.k === 1 ? mergeCells(row.l, row.r) : { cell: row.l, kinds: row.l.s.map(() => 'eq') };
+    const c = row.l ?? row.r;
+    if (!c) return null;
+    return { cell: c, kinds: c.s.map(() => (row.l ? 'del' : 'ins')) };
+  }
+
   /** Ctrl+B: the line in the middle of the screen. */
   export function toggleMarkHere() {
     toggleMark(Math.min(total - 1, top + Math.floor(visible / 2)));
@@ -409,9 +467,10 @@
 <svelte:window onkeydown={onGlobalKey} />
 
 {#snippet bits(list: Bit[])}{#each list as b}{#if b.hit}<span class="hit">{b.t}</span>{:else if b.c}<span class="c-{b.c}">{b.t}</span>{:else}{b.t}{/if}{/each}{/snippet}
+{#snippet inlineText(m: { cell: Cell; kinds: Kind[] }, lang: string | null)}{#each runs(m.cell, lang) as s, n}{#if m.kinds[n] === 'del'}<del>{@render bits(s.bits)}</del>{:else if m.kinds[n] === 'ins'}<ins>{@render bits(s.bits)}</ins>{:else}{@render bits(s.bits)}{/if}{/each}{/snippet}
 {#snippet cellText(c: Cell, lang: string | null)}{#each runs(c, lang) as s}{#if s.h}<mark>{@render bits(s.bits)}</mark>{:else}{@render bits(s.bits)}{/if}{/each}{/snippet}
 
-<div class="view" bind:clientHeight={height} bind:clientWidth={width} style:--fs="{fontSize}px" style:--rh="{rowH}px" style:--lnw="{lnW}px">
+<div class="view" class:inline bind:clientHeight={height} bind:clientWidth={width} style:--fs="{fontSize}px" style:--rh="{rowH}px" style:--lnw="{lnW}px">
   <!-- The rows area is focusable so the arrow keys and Page Up/Down can scroll it. -->
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div class="rows" id="rows" bind:this={viewport} tabindex="0" role="region" aria-label="Differences">
@@ -427,6 +486,14 @@
           <button type="button" class="fold" onclick={() => onOpenFold?.(r)} title="Show these lines">
             <span class="dots" aria-hidden="true">⋯</span>{fmtNum(row.f ?? 0)} unchanged {row.f === 1 ? 'line' : 'lines'}<span class="show">Show</span>
           </button>
+        </div>
+      {:else if inline}
+        {@const m = inlineOf(row)}
+        <div class="row il k{row.k}" class:bm={marked.has(r)} class:cur={current !== null && r >= current.row && r < current.row + current.rows} class:found={flashRow === r}>
+          <button type="button" class="ln" tabindex="-1" title="{marked.has(r) ? 'Remove the bookmark' : 'Bookmark this line (Ctrl+B)'}" onclick={() => toggleMark(r)}>{row.l ? row.l.n : ''}</button>
+          <button type="button" class="ln r" tabindex="-1" title="{marked.has(r) ? 'Remove the bookmark' : 'Bookmark this line (Ctrl+B)'}" onclick={() => toggleMark(r)}>{row.r ? row.r.n : ''}</button>
+          <span class="sign" aria-hidden="true">{row.k === 2 ? '+' : row.k === 3 ? '−' : row.k === 1 ? '±' : ''}</span>
+          <span class="tx">{#if m}<span class="in" style:transform="translateX({-scrollX}px)">{@render inlineText(m, row.r ? langR : langL)}</span>{/if}</span>
         </div>
       {:else}
       <div class="row k{row.k}" class:bm={marked.has(r)} class:cur={current !== null && r >= current.row && r < current.row + current.rows} class:found={flashRow === r}>
@@ -688,6 +755,75 @@
       transform: scale(0.6);
       opacity: 0;
     }
+  }
+
+  /* ---- Inline view: one card, two line-number columns ---- */
+  .inline .rows::before {
+    width: 100%;
+  }
+  .inline .rows::after {
+    display: none;
+  }
+  .row.il {
+    grid-template-columns: var(--lnw) var(--lnw) 18px 1fr;
+  }
+  .row.il .tx {
+    padding-left: 2px;
+  }
+  .sign {
+    text-align: center;
+    color: var(--t-muted);
+  }
+  .k2 .sign {
+    color: var(--t-add-s);
+  }
+  .k3 .sign {
+    color: var(--t-del-s);
+  }
+  .k1 .sign {
+    color: var(--t-chg-s);
+  }
+  .row.il.k2 .tx,
+  .row.il.k2 .ln,
+  .row.il.k2 .sign {
+    background: var(--t-add);
+  }
+  .row.il.k3 .tx,
+  .row.il.k3 .ln,
+  .row.il.k3 .sign {
+    background: var(--t-del);
+  }
+  .row.il.k1 .sign {
+    background: var(--t-chg);
+  }
+  .row.il.k2 .ln.r,
+  .row.il.k3 .ln:first-child {
+    box-shadow: none;
+  }
+  .row.il.k2 .ln:first-child {
+    box-shadow: inset 2px 0 0 var(--t-add-s);
+  }
+  del {
+    text-decoration: line-through;
+    text-decoration-color: color-mix(in srgb, var(--t-del-s) 70%, transparent);
+    color: var(--t-del-s);
+    background: var(--t-del);
+    border-radius: 3px;
+  }
+  ins {
+    text-decoration: none;
+    color: var(--t-add-s);
+    background: var(--t-add);
+    border-radius: 3px;
+    box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--t-add-s) 60%, transparent);
+  }
+  .row.il.k3 del,
+  .row.il.k2 ins {
+    background: none;
+    box-shadow: none;
+  }
+  .row.il.k2 ins {
+    color: inherit;
   }
 
   /* A folded run of unchanged lines: one quiet row across both cards. */

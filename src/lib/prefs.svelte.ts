@@ -6,6 +6,7 @@ const CODE_FONT_KEY = 'sbs-code-font';
 const SPACING_KEY = 'sbs-line-spacing';
 const TIDY_KEY = 'sbs-tidy';
 const FOLD_KEY = 'sbs-fold';
+const INLINE_KEY = 'sbs-inline';
 
 function read(key: string): string | null {
   try {
@@ -54,7 +55,14 @@ export const prefs = $state({
   tidy: read(TIDY_KEY) === 'on',
   /** Hide long runs of unchanged lines (folds). */
   fold: read(FOLD_KEY) === 'on',
+  /** One column (inline) instead of side by side. */
+  inline: read(INLINE_KEY) === 'on',
 });
+
+export function setInline(on: boolean) {
+  prefs.inline = on;
+  write(INLINE_KEY, on ? 'on' : 'off');
+}
 
 export function setFoldPref(on: boolean) {
   prefs.fold = on;

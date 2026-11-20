@@ -55,7 +55,7 @@
     markUpdateChecked,
     updateCheckDue,
   } from '#lib/settings.ts';
-  import { applyCodeFont, prefs, setFoldPref, setTidy, tidyKind, zoomStep } from '#lib/prefs.svelte.ts';
+  import { applyCodeFont, prefs, setFoldPref, setInline, setTidy, tidyKind, zoomStep } from '#lib/prefs.svelte.ts';
   import { changeLook, followSystem, loadLook, setLook, type Look } from '#lib/theme.ts';
 
   type SideName = 'left' | 'right';
@@ -688,6 +688,7 @@
               bind:this={view}
               {summary}
               fontSize={prefs.fontSize}
+              inline={prefs.inline}
               query={findMode === 'find' ? query : ''}
               {matchCase}
               onCurrent={(h) => {
@@ -822,6 +823,14 @@
       {:else}
         <span>Compared in {(summary.millis / 1000).toFixed(2)} s</span>
       {/if}
+      <span class="views" role="group" aria-label="Layout">
+        <button type="button" aria-pressed={!prefs.inline} title="Side by side" aria-label="Side by side" onclick={() => setInline(false)}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="7.5" height="14" rx="1.5" /><rect x="13" y="5" width="7.5" height="14" rx="1.5" /></svg>
+        </button>
+        <button type="button" aria-pressed={prefs.inline} title="Inline: one column, removed words struck through, added words underlined" aria-label="Inline" onclick={() => setInline(true)}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="1.5" /><path d="M7 10h7M7 14h10" /></svg>
+        </button>
+      </span>
       <button
         type="button"
         class="live fold"
@@ -1832,6 +1841,40 @@
   }
   .live:active {
     transform: scale(0.97);
+  }
+  .views {
+    display: inline-flex;
+    gap: 1px;
+    padding: 1px;
+    border-radius: 999px;
+    border: 1px solid var(--t-line2);
+  }
+  .views button {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    color: var(--t-muted);
+    cursor: pointer;
+  }
+  .views button:hover {
+    color: var(--t-strong);
+  }
+  .views button[aria-pressed='true'] {
+    background: var(--t-acc-bg);
+    color: var(--t-acc);
+  }
+  .views svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
   }
   .live.fold svg {
     width: 12px;
