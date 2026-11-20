@@ -3,6 +3,7 @@
   import { open } from '@tauri-apps/plugin-dialog';
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import TitleBar from '$lib/components/TitleBar.svelte';
+  import RollingNumber from '$lib/components/RollingNumber.svelte';
   import DiffView from '$lib/components/DiffView.svelte';
   import FindBar from '$lib/components/FindBar.svelte';
   import RecentList from '$lib/components/RecentList.svelte';
@@ -88,6 +89,13 @@
   const canInstall = $derived(!!install?.supported && !install.runningInstalled);
 
   const isPasted = (p: string | null) => !!p && /[\\/]SideBySide[\\/]Pasted text \(/.test(p);
+
+  // The counter rolls only for clicks on the arrows; F7/F8 change it instantly (keys are used a lot).
+  let roll = $state(0);
+  function stepDiff(d: 1 | -1) {
+    roll = d;
+    Promise.resolve(d > 0 ? view?.next() : view?.prev()).finally(() => setTimeout(() => (roll = 0)));
+  }
 
   function pickLook(next: Look, from: { x: number; y: number }) {
     if (next.theme === look.theme && next.mode === look.mode) return;
@@ -351,7 +359,56 @@
 <svelte:window onkeydown={onKey} />
 
 <div class="app">
-  <TitleBar {look} onLook={pickLook} {onHelp} />
+  <TitleBar {look} onLook={pickLook} {onHelp}>
+    {#snippet island()}
+      {@const none = !summary || summary.blocks === 0}
+      <button type="button" class="ib sq" disabled={none} onclick={() => stepDiff(-1)} title="Previous difference (F7)" aria-label="Previous difference">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
+      </button>
+      {#if summary && summary.blocks === 0}
+        <span class="counter same">✓ No differences</span>
+      {:else}
+        <span class="counter" aria-live="polite">
+          <b><RollingNumber value={summary && current ? fmtNum(current.index + 1) : '–'} dir={roll} /></b>
+          <span>of {summary ? fmtNum(summary.blocks) : '–'}</span>
+        </span>
+      {/if}
+      <button type="button" class="ib sq" disabled={none} onclick={() => stepDiff(1)} title="Next difference (F8)" aria-label="Next difference">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+      </button>
+      <i class="div"></i>
+      <button type="button" class="ib" disabled={!paths.left || !paths.right} onclick={swap} title="Swap left and right">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h11l-3-3M17 17H6l3 3" /></svg><span class="lbl">Swap</span>
+      </button>
+      <button type="button" class="ib" disabled={!summary} onclick={() => (findMode = 'find')} title="Find text (Ctrl+F)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="M20 20l-4.5-4.5" /></svg><span class="lbl">Find</span>
+      </button>
+      <button type="button" class="ib" disabled={!summary} onclick={() => (findMode = 'goto')} title="Go to a line number (Ctrl+G)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4L7 20M17 4l-2 16M4 9h16M3 15h16" /></svg><span class="lbl">Go to line</span>
+      </button>
+      <i class="div"></i>
+      <span class="ig" role="group" aria-label="Ignore">
+        <span class="iglbl">Ignore</span>
+        <button type="button" class="chip" class:on={ignore.spaces} aria-pressed={ignore.spaces} onclick={() => toggle('spaces')} title="Ignore spaces: treat lines as equal if they only differ in spaces or tabs">
+          <span class="dot"></span>Spaces
+        </button>
+        <button type="button" class="chip" class:on={ignore.blank} aria-pressed={ignore.blank} onclick={() => toggle('blank')} title="Ignore blank lines: don't count empty lines as differences">
+          <span class="dot"></span><span class="long">Blank lines</span><span class="short">Blank</span>
+        </button>
+        <button type="button" class="chip" class:on={ignore.caseLetters} aria-pressed={ignore.caseLetters} onclick={() => toggle('caseLetters')} title="Ignore case: treat UPPER and lower case letters as the same">
+          <span class="dot"></span>Case
+        </button>
+      </span>
+    {/snippet}
+    {#snippet actions()}
+      {#if canInstall}
+        <button type="button" class="install" onclick={() => (installOpen = true)} title="Add SideBySide to your Start Menu" aria-label={install?.installed ? 'Update install' : 'Install'}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg>
+          <span class="lbl">{install?.installed ? 'Update install' : 'Install'}</span>
+        </button>
+      {/if}
+    {/snippet}
+  </TitleBar>
 
   <div class="body">
     <nav class="activity" aria-label="Sections">
@@ -386,30 +443,6 @@
             New comparison
           {/if}
         </span>
-      </div>
-
-      <div class="tools">
-        <button type="button" disabled={!summary || summary.blocks === 0} onclick={() => view?.prev()} title="Previous difference (F7)">↑ Prev</button>
-        <button type="button" disabled={!summary || summary.blocks === 0} onclick={() => view?.next()} title="Next difference (F8)">↓ Next</button>
-        <span class="vs"></span>
-        <button type="button" disabled={!paths.left || !paths.right} onclick={swap} title="Swap left and right">⇄ Swap</button>
-        <button type="button" disabled={!summary} onclick={() => (findMode = 'find')} title="Find text (Ctrl+F)">Find</button>
-        <button type="button" disabled={!summary} onclick={() => (findMode = 'goto')} title="Go to a line number (Ctrl+G)">Go to line</button>
-        <span class="vs"></span>
-        <span class="lbl">Ignore</span>
-        <button type="button" class="tg" class:on={ignore.spaces} aria-pressed={ignore.spaces} onclick={() => toggle('spaces')} title="Treat lines as equal if they only differ in spaces or tabs">␣ Spaces</button>
-        <button type="button" class="tg" class:on={ignore.blank} aria-pressed={ignore.blank} onclick={() => toggle('blank')} title="Don't count empty lines as differences">¶ Blank lines</button>
-        <button type="button" class="tg" class:on={ignore.caseLetters} aria-pressed={ignore.caseLetters} onclick={() => toggle('caseLetters')} title="Treat UPPER and lower case letters as the same">Aa Case</button>
-        <span class="grow"></span>
-        {#if summary && summary.blocks === 0}
-          <span class="same-pill">✓ No differences</span>
-        {:else if summary && current}
-          <span class="counter">Difference {fmtNum(current.index + 1)} of {fmtNum(summary.blocks)}</span>
-        {/if}
-        {#if canInstall}
-          <span class="vs"></span>
-          <button type="button" class="install" onclick={() => (installOpen = true)} title="Add SideBySide to your Start Menu">⤓ {install?.installed ? 'Update install' : 'Install'}</button>
-        {/if}
       </div>
 
       {#if findMode && summary}
@@ -452,7 +485,10 @@
               {fontSize}
               query={findMode === 'find' ? query : ''}
               {matchCase}
-              onCurrent={(h) => (current = h)}
+              onCurrent={(h) => {
+                current = h;
+                setTimeout(() => (roll = 0)); // after the counter has used it
+              }}
               onZoom={zoom}
               onFilesChanged={() => (filesChanged = true)}
             />
@@ -665,64 +701,192 @@
   }
 
   /* Toolbar */
-  .tools {
-    flex: none;
-    display: flex;
+  /* ---- The island (the main buttons in the top bar) ---- */
+  .ib {
+    height: 30px;
+    padding: 0 11px;
+    display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 6px 10px;
-    border-bottom: 1px solid var(--border);
-    white-space: nowrap;
-    overflow: hidden;
-  }
-  .tools button {
-    font-size: 12px;
+    gap: 6px;
+    border: 0;
+    border-radius: 9px;
     background: none;
-    border: 1px solid transparent;
-    color: var(--fg);
-    padding: 4px 9px;
-    border-radius: 5px;
+    color: var(--t-fg);
+    font-size: 12.5px;
+    white-space: nowrap;
     cursor: pointer;
+    transition:
+      background-color 0.15s ease,
+      transform 0.16s cubic-bezier(0.23, 1, 0.32, 1);
   }
-  .tools button:hover:not(:disabled) {
-    background: var(--hover);
+  .ib.sq {
+    width: 30px;
+    padding: 0;
+    justify-content: center;
   }
-  .tools button:disabled {
-    color: var(--faint);
+  .ib:hover:not(:disabled) {
+    background: var(--t-line);
+  }
+  .ib:active:not(:disabled) {
+    transform: scale(0.95);
+  }
+  .ib:disabled {
+    opacity: 0.35;
     cursor: default;
   }
-  .tools .tg {
-    border-color: var(--border-2);
-  }
-  .tools .tg.on {
-    background: var(--accent-bg);
-    border-color: var(--accent-border);
-    color: var(--accent-fg);
-  }
-  .vs {
-    width: 1px;
-    height: 18px;
-    background: var(--border-2);
-    margin: 0 6px;
-  }
-  .lbl {
-    font-size: 12px;
-    color: var(--muted);
-    margin-right: 2px;
-  }
-  .tools .install {
-    border-color: var(--accent-border);
-    color: var(--accent-fg);
-    background: var(--accent-bg);
+  .ib svg {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
   .counter {
-    font-size: 12px;
-    color: var(--muted);
+    min-width: 66px;
+    padding: 0 6px;
+    display: inline-flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 4px;
+    color: var(--t-muted);
+    font-size: 12.5px;
     font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
-  .same-pill {
-    font-size: 12px;
+  .counter b {
+    color: var(--t-strong);
+    font-weight: 600;
+    font-size: 13.5px;
+  }
+  .counter.same {
     color: var(--ok);
+    padding: 0 10px;
+  }
+  .div {
+    width: 1px;
+    height: 18px;
+    margin: 0 5px;
+    background: var(--t-line2);
+  }
+  .ig {
+    display: inline-flex;
+    gap: 2px;
+  }
+  .chip {
+    height: 26px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: var(--t-muted);
+    font-size: 12.5px;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color 0.18s ease,
+      color 0.18s ease,
+      transform 0.16s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .chip:hover {
+    color: var(--t-strong);
+  }
+  .chip:active {
+    transform: scale(0.95);
+  }
+  .chip.on {
+    background: var(--t-acc-bg);
+    color: var(--t-acc);
+  }
+  .chip .dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-right: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.35;
+    transform: scale(0.7);
+    transition:
+      opacity 0.18s ease,
+      transform 0.25s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .chip.on .dot {
+    opacity: 1;
+    transform: none;
+  }
+  .chip .short {
+    display: none;
+  }
+  .iglbl {
+    align-self: center;
+    padding: 0 4px 0 2px;
+    color: var(--t-faint);
+    font-size: 11.5px;
+  }
+  .install {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 12px;
+    margin-right: 4px;
+    border: 0;
+    border-radius: 9px;
+    background: var(--t-strong);
+    color: var(--t-bg);
+    font-weight: 600;
+    font-size: 12.5px;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: transform 0.16s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .install:active {
+    transform: scale(0.96);
+  }
+  .install svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  /* Narrower window: the island keeps its buttons but drops their words. */
+  @container bar (max-width: 1140px) {
+    .ib .lbl,
+    .chip .long,
+    .iglbl {
+      display: none;
+    }
+    .ib:not(.sq) {
+      width: 30px;
+      padding: 0;
+      justify-content: center;
+    }
+    .chip .short {
+      display: inline;
+    }
+  }
+  @container bar (max-width: 920px) {
+    .chip .dot,
+    .install .lbl {
+      display: none;
+    }
+    .chip {
+      padding: 0 7px;
+    }
+    .install {
+      width: 30px;
+      padding: 0;
+      justify-content: center;
+    }
+    .div {
+      margin: 0 2px;
+    }
   }
   .grow {
     flex: 1;
