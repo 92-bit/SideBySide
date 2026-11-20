@@ -6,7 +6,7 @@
   import type { Look } from '#lib/theme.ts';
   import ThemePanel from './ThemePanel.svelte';
 
-  type HelpAction = 'check' | 'about' | 'site';
+  type HelpAction = 'check' | 'about' | 'site' | 'keys';
 
   let {
     look,
@@ -104,6 +104,7 @@
       {#if helpOpen}
         <div class="dropdown" role="menu">
           <button type="button" role="menuitem" onclick={() => pick('check')}>Check for updates…</button>
+          <button type="button" role="menuitem" onclick={() => pick('keys')}>Keyboard shortcuts <span class="hint">F1</span></button>
           <button type="button" role="menuitem" onclick={() => pick('site')}>Project page on GitHub</button>
           <hr />
           <button type="button" role="menuitem" onclick={() => pick('about')}>About SideBySide</button>
@@ -297,6 +298,12 @@
   .dropdown button:hover {
     background: var(--t-line);
     color: var(--t-strong);
+  }
+  .dropdown .hint {
+    float: right;
+    margin-left: 16px;
+    color: var(--t-muted);
+    font-size: 11.5px;
   }
   .dropdown hr {
     border: 0;

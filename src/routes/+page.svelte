@@ -10,6 +10,7 @@
   import PastePanel from '#lib/components/PastePanel.svelte';
   import InstallDialog from '#lib/components/InstallDialog.svelte';
   import UpdateDialog from '#lib/components/UpdateDialog.svelte';
+  import ShortcutsDialog from '#lib/components/ShortcutsDialog.svelte';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { getVersion } from '@tauri-apps/api/app';
   import { listen } from '@tauri-apps/api/event';
@@ -94,8 +95,10 @@
   /** Set when the daily check found a newer version. */
   let newVersion = $state<UpdateInfo | null>(null);
 
-  function onHelp(action: 'check' | 'about' | 'site') {
+  let keysOpen = $state(false);
+  function onHelp(action: 'check' | 'about' | 'site' | 'keys') {
     if (action === 'site') openUrl(PROJECT_URL);
+    else if (action === 'keys') keysOpen = true;
     else aboutOpen = true;
   }
   // Show the Install button only for the portable copy on Windows.
@@ -347,6 +350,11 @@
 
   // ---- Keyboard shortcuts ----
   function onKey(e: KeyboardEvent) {
+    if (e.key === 'F1') {
+      e.preventDefault(); // (otherwise WebView2 opens its own help)
+      keysOpen = !keysOpen;
+      return;
+    }
     if (!e.ctrlKey || e.altKey) {
       if (e.key === 'Escape' && findMode) findMode = null;
       return;
@@ -625,6 +633,10 @@
 
   {#if aboutOpen}
     <UpdateDialog version={version} portable={!install?.runningInstalled} known={newVersion} onClose={() => (aboutOpen = false)} />
+  {/if}
+
+  {#if keysOpen}
+    <ShortcutsDialog onClose={() => (keysOpen = false)} />
   {/if}
 
   {#if installOpen && install}
