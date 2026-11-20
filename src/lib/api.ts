@@ -97,6 +97,17 @@ export const find = (query: string, from: number | null, forward: boolean, match
 export const saveReport = (path: string, when: string) => invoke<void>('save_report', { path, when });
 /** Open the report that was just saved, in the browser. */
 export const openReport = () => invoke<void>('open_report');
+/** Using SideBySide as Git's compare tool. */
+export interface GitSetup {
+  commands: string[];
+  gitFound: boolean;
+  /** What Git's compare tool is set to now ('' if nothing). */
+  current: string;
+  /** Why Git couldn't be used ('' if it could). */
+  problem: string;
+}
+/** apply = false: only look; true: change Git's settings (git config --global). */
+export const gitSetup = (apply: boolean) => invoke<GitSetup>('git_setup', { apply });
 /** The differences as a patch (unified diff text). */
 export const makePatch = () => invoke<string>('make_patch');
 /** "Hide unchanged" on or off; returns how many rows the screen has now. */

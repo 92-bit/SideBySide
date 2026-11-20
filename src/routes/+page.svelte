@@ -13,6 +13,7 @@
   import ShortcutsDialog from '#lib/components/ShortcutsDialog.svelte';
   import RulesPanel from '#lib/components/RulesPanel.svelte';
   import LinesPanel from '#lib/components/LinesPanel.svelte';
+  import GitDialog from '#lib/components/GitDialog.svelte';
   import { activeRules, loadRules, saveRules, type RulesConfig } from '#lib/rules.ts';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { getVersion } from '@tauri-apps/api/app';
@@ -108,9 +109,11 @@
   let newVersion = $state<UpdateInfo | null>(null);
 
   let keysOpen = $state(false);
-  function onHelp(action: 'check' | 'about' | 'site' | 'keys') {
+  let gitOpen = $state(false);
+  function onHelp(action: 'check' | 'about' | 'site' | 'keys' | 'git') {
     if (action === 'site') openUrl(PROJECT_URL);
     else if (action === 'keys') keysOpen = true;
+    else if (action === 'git') gitOpen = true;
     else aboutOpen = true;
   }
   // Show the Install button only for the portable copy on Windows.
@@ -872,6 +875,10 @@
 
   {#if aboutOpen}
     <UpdateDialog version={version} portable={!install?.runningInstalled} known={newVersion} onClose={() => (aboutOpen = false)} />
+  {/if}
+
+  {#if gitOpen}
+    <GitDialog onClose={() => (gitOpen = false)} />
   {/if}
 
   {#if keysOpen}

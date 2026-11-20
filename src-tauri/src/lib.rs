@@ -259,6 +259,66 @@ async fn make_patch(state: tauri::State<'_, AppState>) -> Result<String, String>
         .map_err(|e| e.to_string())?
 }
 
+/// Using SideBySide as Git's compare tool ("git difftool").
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitSetup {
+    /// The Git commands that set it up (to show, or to run).
+    commands: Vec<String>,
+    /// Git was found on this computer.
+    git_found: bool,
+    /// What Git's compare tool is set to now ("" if nothing).
+    current: String,
+    /// Why Git couldn't be used, if it couldn't ("" if it could).
+    problem: String,
+}
+
+fn git_run(args: &[&str]) -> std::io::Result<std::process::Output> {
+    let mut cmd = std::process::Command::new("git");
+    cmd.args(args).stdin(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // no console window flashing up
+    }
+    cmd.output()
+}
+fn git(args: &[&str]) -> Option<std::process::Output> {
+    git_run(args).ok()
+}
+
+/// Shows (apply = false) or runs (apply = true) the Git settings that make "git difftool" use
+/// SideBySide. Only changes Git's own settings for this user (git config --global).
+#[tauri::command]
+fn git_setup(apply: bool) -> Result<GitSetup, String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe = exe.to_string_lossy().replace('\\', "/");
+    let tool_cmd = format!("\"{exe}\" --wait \"$LOCAL\" \"$REMOTE\"");
+    let settings: [(&str, &str); 3] =
+        [("difftool.sidebyside.cmd", &tool_cmd), ("diff.tool", "sidebyside"), ("difftool.prompt", "false")];
+    let commands = settings.iter().map(|(k, v)| format!("git config --global {k} '{v}'")).collect();
+    let (git_found, problem) = match git_run(&["--version"]) {
+        Ok(o) if o.status.success() => (true, String::new()),
+        Ok(o) => (false, String::from_utf8_lossy(&o.stderr).trim().to_string()),
+        Err(e) => (false, e.to_string()),
+    };
+    if apply {
+        if !git_found {
+            return Err("Git isn't installed (or can't be found), so there is nothing to set up.".into());
+        }
+        for (k, v) in settings {
+            let out = git(&["config", "--global", k, v]).ok_or("Git could not be started.")?;
+            if !out.status.success() {
+                return Err(format!("Git said: {}", String::from_utf8_lossy(&out.stderr).trim()));
+            }
+        }
+    }
+    let current = git(&["config", "--global", "diff.tool"])
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+    Ok(GitSetup { commands, git_found, current, problem })
+}
+
 /// Live reload: has a compared file changed since? False when nothing is compared.
 #[tauri::command]
 fn files_changed(state: tauri::State<'_, AppState>) -> bool {
@@ -363,16 +423,20 @@ pub fn run() {
     engine::remove_left_over_copies(install::process_running);
     install::refresh_registered_version(env!("CARGO_PKG_VERSION"));
 
+    let own_window = args.iter().any(|a| a == "--wait");
     let cwd = std::env::current_dir().unwrap_or_default();
     let state = AppState {
         pending_files: Mutex::new(files_from_args(args, &cwd)),
         ..Default::default()
     };
 
-    tauri::Builder::default()
+    // "--wait" (used by Git, see git_setup): this start gets its own window and only ends when
+    // that window is closed, so Git waits before it removes its temporary copies of the files.
+    let mut builder = tauri::Builder::default();
+    if !own_window {
         // Only one SideBySide window: opening it again (or right-clicking a file)
         // hands the files to the window that is already open.
-        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.unminimize();
                 let _ = w.set_focus();
@@ -384,7 +448,9 @@ pub fn run() {
                 }
                 let _ = app.emit("files-arrived", ());
             }
-        }))
+        }));
+    }
+    builder
         .manage(state)
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -401,6 +467,7 @@ pub fn run() {
             save_report,
             open_report,
             make_patch,
+            git_setup,
             row_for_line,
             find,
             close_compare,
