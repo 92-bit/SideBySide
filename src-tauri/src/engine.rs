@@ -579,15 +579,24 @@ fn scan_file(
     File::open(path)
         .and_then(|f| f.take(READ_BUF as u64).read_to_end(&mut head))
         .map_err(|e| format!("Could not open \"{name}\": {e}"))?;
-    let format = detect(&head);
-    let tidy_kind = if opts.tidy { crate::tidy::kind_of(&name) } else { None };
+    // Office files and PDFs: their text is compared (see docs.rs).
+    let doc = crate::docs::kind_of(&name);
+    let format = if doc.is_some() { Format::Normal } else { detect(&head) };
+    let tidy_kind = if opts.tidy && doc.is_none() { crate::tidy::kind_of(&name) } else { None };
     // A range that starts at the first line and goes past the end is the whole file.
     let range = range.filter(|&(first, last)| first > 1 || last < u32::MAX).map(|(f, l)| (f.max(1), l.max(f.max(1))));
-    if format == Format::Normal && tidy_kind.is_none() && range.is_none() {
+    if format == Format::Normal && tidy_kind.is_none() && range.is_none() && doc.is_none() {
         return scan(path, &name, opts, ctl, done_before, total);
     }
     let meta = std::fs::metadata(path).map_err(|e| format!("Could not read \"{name}\": {e}"))?;
     let mut copy = if format == Format::Normal { None } else { Some(convert(path, &name, &format, ctl)?) };
+    if let Some(d) = doc {
+        let text = crate::docs::text_of(path, d)?;
+        let n = COPY_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let c = TempCopy(std::env::temp_dir().join(format!("SideBySide-{}-{n}.txt", std::process::id())));
+        std::fs::write(&c.0, text).map_err(|e| format!("Could not read \"{name}\" (Temp folder: {e})"))?;
+        copy = Some(c);
+    }
     if let Some(kind) = tidy_kind {
         let from = copy.as_ref().map_or(path, |c| c.0.as_path());
         copy = Some(tidy_copy(from, &name, kind, ctl)?); // (the converted copy isn't needed after this)

@@ -3,6 +3,7 @@
 
 mod cli;
 pub mod engine;
+pub mod docs;
 pub mod edit;
 pub mod export;
 pub mod fold;
