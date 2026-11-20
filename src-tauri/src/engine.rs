@@ -152,6 +152,8 @@ pub struct SideInfo {
     pub lines: u32,
     /// Only part of the file is compared: its first and last line (counting from 1).
     pub part: Option<(u32, u32)>,
+    /// The text shown is the file itself (not a converted, tidied or partial copy), so it can be edited.
+    pub editable: bool,
 }
 
 fn file_name(path: &Path) -> String {
@@ -168,6 +170,7 @@ impl Side {
             size: self.size,
             lines: self.lines,
             part: self.part,
+            editable: self.read_from == self.path && self.part.is_none(),
         }
     }
 
@@ -440,7 +443,8 @@ pub fn remove_left_over_copies(running: impl Fn(u32) -> bool) {
             .strip_prefix("SideBySide-")
             .and_then(|r| r.strip_suffix(".txt"))
             .and_then(|r| r.split_once('-'))
-            .and_then(|(pid, n)| n.parse::<u32>().ok().and(pid.parse::<u32>().ok()));
+            // (working copies of edited files are "SideBySide-<pid>-edit<n>.txt", see edit.rs)
+            .and_then(|(pid, n)| n.trim_start_matches("edit").parse::<u32>().ok().and(pid.parse::<u32>().ok()));
         if let Some(pid) = pid {
             if pid != std::process::id() && !running(pid) {
                 let _ = std::fs::remove_file(e.path());
@@ -1476,6 +1480,19 @@ impl Comparison {
 
     pub fn total_rows(&self) -> u64 {
         self.total_rows
+    }
+
+    /// The file the lines are read from (the file itself, or a converted copy of it).
+    pub fn source(&self, left: bool) -> &Path {
+        if left { &self.left.read_from } else { &self.right.read_from }
+    }
+
+    /// The difference at row `row`: (left first line, left lines, right first line, right lines),
+    /// lines counted from 0.
+    pub fn block_at(&self, row: u64) -> Option<(u32, u32, u32, u32)> {
+        let i = self.ops.partition_point(|o| o.row + o.rows() <= row);
+        let o = self.ops.get(i).filter(|o| !o.same && o.row <= row)?;
+        Some((o.a, o.alen, o.b, o.blen))
     }
 
     /// Where each difference is: (first row, rows).

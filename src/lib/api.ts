@@ -8,6 +8,8 @@ export interface SideInfo {
   lines: number;
   /** Only part of the file is compared: its first and last line. */
   part: [number, number] | null;
+  /** The text shown is the file itself, so it can be edited. */
+  editable: boolean;
 }
 
 export interface Summary {
@@ -108,6 +110,24 @@ export interface GitSetup {
 }
 /** apply = false: only look; true: change Git's settings (git config --global). */
 export const gitSetup = (apply: boolean) => invoke<GitSetup>('git_setup', { apply });
+// ---- Editing and merging ----
+/** Which files have unsaved changes, and whether Undo / Redo can do anything. */
+export interface EditState {
+  left: boolean;
+  right: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
+}
+/** Copy the difference at screen row `row` to the other side (toLeft: from the right file into the left). */
+export const copyBlock = (row: number, toLeft: boolean) => invoke<EditState>('copy_block', { row, toLeft });
+/** Change line `line` (from 1) of one file to `text`. */
+export const editLine = (left: boolean, line: number, text: string) => invoke<EditState>('edit_line', { left, line, text });
+export const undoRedo = (redo: boolean) => invoke<EditState>('undo_redo', { redo });
+/** Save one side (left = true / false) or both (null). */
+export const saveEdits = (left: boolean | null) => invoke<EditState>('save_edits', { left });
+export const discardEdits = (left: boolean | null) => invoke<EditState>('discard_edits', { left });
+export const editState = () => invoke<EditState>('edit_state');
+
 /** Download a file from a web link (http/https) to a temporary file; returns its path. */
 export const fetchUrl = (url: string) => invoke<string>('fetch_url', { url });
 /** Save copied text to a temporary file (to compare it); returns its path. */

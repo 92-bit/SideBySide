@@ -23,6 +23,15 @@
       ],
     },
     {
+      title: 'Editing',
+      items: [
+        [[['Double-click']], 'Edit a line (Enter keeps it, Esc cancels)'],
+        [[['Ctrl', 'Z']], 'Undo'],
+        [[['Ctrl', 'Y']], 'Redo'],
+        [[['Ctrl', 'S']], 'Save the changes'],
+      ],
+    },
+    {
       title: 'Find',
       items: [
         [[['Ctrl', 'F']], 'Find text'],

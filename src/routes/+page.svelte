@@ -3,6 +3,7 @@
   import { open, save } from '@tauri-apps/plugin-dialog';
   import { readText } from '@tauri-apps/plugin-clipboard-manager';
   import { getCurrentWebview } from '@tauri-apps/api/webview';
+  import { getCurrentWindow } from '@tauri-apps/api/window';
   import TitleBar from '#lib/components/TitleBar.svelte';
   import RollingNumber from '#lib/components/RollingNumber.svelte';
   import DiffView from '#lib/components/DiffView.svelte';
@@ -34,6 +35,12 @@
     openReport,
     makePatch,
     saveClipboardText,
+    copyBlock,
+    editLine,
+    undoRedo,
+    saveEdits,
+    discardEdits,
+    type EditState,
     type Spot,
     fmtNum,
     fmtSize,
@@ -326,6 +333,7 @@
   }
 
   async function choose(side: SideName) {
+    if (!(await askToSave())) return;
     const p = await open({
       multiple: false,
       directory: false,
@@ -354,7 +362,8 @@
     closeCompare();
   }
   /** "New" in the top bar: back to the start screen. */
-  function newCompare() {
+  async function newCompare() {
+    if (!(await askToSave())) return;
     closeAll();
     saveSession(null); // the start screen is where you left off now
     pasteMode = false;
@@ -393,7 +402,8 @@
     run();
   }
 
-  function openRecent(r: Recent) {
+  async function openRecent(r: Recent) {
+    if (!(await askToSave())) return;
     recentOpen = false;
     pasteMode = false;
     paths = { left: r.left, right: r.right };
@@ -480,6 +490,43 @@
     }
   }
 
+  // ---- Editing and merging ----
+  let edits = $state<EditState>({ left: false, right: false, canUndo: false, canRedo: false });
+  const dirty = $derived(edits.left || edits.right);
+  /** Runs an edit, then shows the result (the view keeps its place). */
+  async function doEdit(change: () => Promise<EditState>) {
+    try {
+      edits = await change();
+      await run(true);
+    } catch (e) {
+      tell(String(e));
+    }
+  }
+  const copyDiff = (row: number, toLeft: boolean) => doEdit(() => copyBlock(row, toLeft));
+  const changeLine = (left: boolean, line: number, text: string) => doEdit(() => editLine(left, line, text));
+  const undo = (redo: boolean) => doEdit(() => undoRedo(redo));
+  async function saveSide(left: boolean | null) {
+    await doEdit(() => saveEdits(left));
+    if (!edits.left && !edits.right) tell('Saved.');
+  }
+  const discardSide = (left: boolean | null) => doEdit(() => discardEdits(left));
+
+  // "Save your changes?" before anything that would close the files being edited.
+  let ask = $state<{ resolve: (go: boolean) => void } | null>(null);
+  function askToSave(): Promise<boolean> {
+    if (!dirty) return Promise.resolve(true);
+    return new Promise((resolve) => (ask = { resolve }));
+  }
+  async function answer(choice: 'save' | 'drop' | 'cancel') {
+    const a = ask;
+    ask = null;
+    if (choice === 'save') await saveSide(null);
+    else if (choice === 'drop') edits = await discardEdits(null);
+    a?.resolve(choice !== 'cancel');
+  }
+  const changedNames = () =>
+    [edits.left && summary?.left.name, edits.right && summary?.right.name].filter(Boolean).join(' and ');
+
   // ---- Open a web link (Ctrl+L) ----
   let urlOpen = $state(false);
   function openDownloaded(side: SideName, path: string) {
@@ -551,8 +598,9 @@
 
   // ---- Files sent to the app ----
   // Two files: compare them. One file: it becomes the original, then the next one is the new file.
-  function receiveFiles(files: string[]) {
+  async function receiveFiles(files: string[]) {
     if (!files.length) return;
+    if (!(await askToSave())) return;
     pasteMode = false;
     recentOpen = false;
     if (files.length >= 2) {
@@ -595,6 +643,11 @@
     else if (k === '0') zoom(0);
     else if (k === 'o') choose(paths.left ? 'right' : 'left');
     else if (k === 'v' && e.shiftKey) compareClipboard();
+    else if (k === 's' && summary && dirty) saveSide(null);
+    else if ((k === 'z' || k === 'y') && summary && !(e.target as Element)?.closest?.('input, textarea')) {
+      const redo = k === 'y' || e.shiftKey;
+      if (redo ? edits.canRedo : edits.canUndo) undo(redo);
+    }
     else if (k === 'l') urlOpen = true;
     else return;
     e.preventDefault();
@@ -626,6 +679,14 @@
     // Start listening first, then pick up what is already waiting; otherwise a file that
     // arrives in between (e.g. the 2nd of two right-clicked files) would be missed.
     const unlistenFiles = listen('files-arrived', () => takeFiles().then(receiveFiles));
+    // Closing the window with unsaved changes: ask first.
+    const win = getCurrentWindow();
+    const unlistenClose = win.onCloseRequested(async (e) => {
+      if (!dirty) return;
+      e.preventDefault();
+      if (await askToSave()) win.destroy();
+    });
+
     reopen = loadReopen();
     unlistenFiles
       .then(() => setFold(prefs.fold)) // before the first comparison
@@ -649,13 +710,19 @@
         dropSide = sideAt(p.position.x);
       } else if (p.type === 'drop') {
         dropSide = null;
-        pasteMode = false;
-        if (p.paths.length >= 2) {
-          paths = { left: p.paths[0], right: p.paths[1] };
-          run();
-        } else if (p.paths.length === 1) {
-          setPath(sideAt(p.position.x), p.paths[0]);
-        }
+        const side = sideAt(p.position.x);
+        const dropped = [...p.paths];
+        // (unsaved changes: ask first)
+        askToSave().then((go) => {
+          if (!go) return;
+          pasteMode = false;
+          if (dropped.length >= 2) {
+            paths = { left: dropped[0], right: dropped[1] };
+            run();
+          } else if (dropped.length === 1) {
+            setPath(side, dropped[0]);
+          }
+        });
       } else {
         dropSide = null;
       }
@@ -664,6 +731,7 @@
       clearInterval(timer);
       unlisten.then((f) => f());
       unlistenFiles.then((f) => f());
+      unlistenClose.then((f) => f());
       stopFollowing();
     };
   });
@@ -805,6 +873,11 @@
                   <b><span class="sr">{side === 'left' ? 'Original: ' : 'New: '}</span>{pasted ? 'Pasted text' : info.name}</b>
                   <small>{pasted ? '' : `${folderOf(info.path)} · `}{fmtSize(info.size)} · {fmtNum(info.lines)} {info.lines === 1 ? 'line' : 'lines'}</small>
                 </div>
+                {#if side === 'left' ? edits.left : edits.right}
+                  <span class="edited" title="Changed here, not saved yet">● edited</span>
+                  <button type="button" class="change" onclick={() => discardSide(side === 'left')} title="Throw away the changes to this file">Discard</button>
+                  <button type="button" class="change save" onclick={() => saveSide(side === 'left')} title="Save the changes to this file (Ctrl+S saves both)">Save</button>
+                {:else}
                 <span class="lw">
                   <button type="button" class="change" class:on={!!info.part} aria-expanded={linesOpen === side} onclick={() => (linesOpen = linesOpen === side ? null : side)} title="Compare only some lines of this file">
                     {info.part ? `Lines ${fmtNum(info.part[0])}–${fmtNum(info.part[1])}` : 'Lines…'}
@@ -814,6 +887,7 @@
                   {/if}
                 </span>
                 <button type="button" class="change" onclick={() => choose(side)}>Change…</button>
+                {/if}
               </div>
             {/each}
             <div class="swapdot">
@@ -839,6 +913,9 @@
               bind:bookmarks
               onOpenFold={openFoldAt}
               onGotoLine={doGoto}
+              canEdit={{ left: summary.left.editable, right: summary.right.editable }}
+              onCopy={copyDiff}
+              onEditLine={changeLine}
               onFilesChanged={() => (filesChanged = true)}
             />
           {/key}
@@ -923,6 +1000,22 @@
 
   {#if aboutOpen}
     <UpdateDialog version={version} portable={!install?.runningInstalled} known={newVersion} onClose={() => (aboutOpen = false)} />
+  {/if}
+
+  {#if ask}
+    <div class="askwrap" role="presentation">
+      <div class="ask" role="alertdialog" aria-modal="true" aria-labelledby="ask-title">
+        <h2 id="ask-title">Save your changes?</h2>
+        <p>You changed {changedNames()} but didn't save {edits.left && edits.right ? 'them' : 'it'} yet.</p>
+        <div class="askbtns">
+          <button type="button" class="ghost" onclick={() => answer('cancel')}>Cancel</button>
+          <span class="grow"></span>
+          <button type="button" class="ghost" onclick={() => answer('drop')}>Don't save</button>
+          <!-- svelte-ignore a11y_autofocus -->
+          <button type="button" class="primary" autofocus onclick={() => answer('save')}>Save</button>
+        </div>
+      </div>
+    </div>
   {/if}
 
   {#if urlOpen}
@@ -1596,6 +1689,81 @@
   }
   .change:hover {
     color: var(--t-strong);
+  }
+  .edited {
+    flex: none;
+    color: var(--t-chg-s);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .change.save {
+    color: var(--t-on-acc);
+    background: var(--t-acc);
+    border-color: transparent;
+    font-weight: 600;
+  }
+  .change.save:hover {
+    color: var(--t-on-acc);
+    filter: brightness(1.08);
+  }
+  /* "Save your changes?" */
+  .askwrap {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: grid;
+    place-items: center;
+    background: color-mix(in srgb, var(--t-bg) 60%, transparent);
+    backdrop-filter: blur(4px);
+  }
+  .ask {
+    width: min(440px, calc(100vw - 32px));
+    padding: 22px 24px 18px;
+    border-radius: 18px;
+    background: var(--t-card2);
+    border: 1px solid var(--t-line2);
+    box-shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.55);
+    color: var(--t-fg);
+    animation: ask-in 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  @keyframes ask-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+  }
+  .ask h2 {
+    margin: 0 0 8px;
+    font-size: 17px;
+    color: var(--t-strong);
+  }
+  .ask p {
+    margin: 0;
+    line-height: 1.5;
+  }
+  .askbtns {
+    display: flex;
+    gap: 8px;
+    margin-top: 18px;
+  }
+  .askbtns button {
+    height: 34px;
+    padding: 0 14px;
+    border-radius: 10px;
+    font: inherit;
+    cursor: pointer;
+  }
+  .askbtns .ghost {
+    border: 1px solid var(--t-line2);
+    background: var(--t-card);
+    color: var(--t-fg);
+  }
+  .askbtns .primary {
+    border: 0;
+    background: var(--t-acc);
+    color: var(--t-on-acc);
+    font-weight: 600;
   }
   .change.on {
     color: var(--t-acc);

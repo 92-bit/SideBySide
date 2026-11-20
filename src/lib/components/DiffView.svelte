@@ -20,6 +20,9 @@
     bookmarks = $bindable([]),
     onOpenFold,
     onGotoLine,
+    canEdit = { left: false, right: false },
+    onCopy,
+    onEditLine,
   }: {
     summary: Summary;
     fontSize?: number;
@@ -35,6 +38,12 @@
     onOpenFold?: (row: number) => void;
     /** "Moved to line 120" was clicked: go to that line (left = in the original file). */
     onGotoLine?: (left: boolean, line: number) => void;
+    /** Which files can be edited (a converted, tidied or partial file can't). */
+    canEdit?: { left: boolean; right: boolean };
+    /** "Copy to the left / right" on the current difference. */
+    onCopy?: (row: number, toLeft: boolean) => void;
+    /** A line was edited (double-click, then Enter). */
+    onEditLine?: (left: boolean, line: number, text: string) => void;
     /** After a live update: where the view was before (see getPlace). */
     place?: { top: number; x: number; atEnd: boolean } | null;
     /** Bookmarked screen rows (kept by the page, so they survive live updates). */
@@ -254,6 +263,25 @@
     const c = row.l ?? row.r;
     if (!c) return null;
     return { cell: c, kinds: c.s.map(() => (row.l ? 'del' : 'ins')) };
+  }
+
+  // ---- Editing a line: double-click it, Enter keeps the change, Esc (or clicking away) drops it ----
+  let editing = $state<{ row: number; left: boolean; line: number; text: string } | null>(null);
+  function startEdit(row: number, left: boolean, c: Cell) {
+    if (!(left ? canEdit.left : canEdit.right) || !onEditLine) return;
+    const text = c.s.map((s) => s.t).join('');
+    if (text.length > 9000) return; // very long lines are shown cut short; editing them here would lose the rest
+    editing = { row, left, line: c.n, text };
+  }
+  function finishEdit(keep: boolean) {
+    const e = editing;
+    editing = null;
+    if (keep && e) onEditLine?.(e.left, e.line, e.text);
+    viewport?.focus();
+  }
+  function focusOnMount(el: HTMLInputElement) {
+    el.focus();
+    el.select();
   }
 
   /** Ctrl+B: the line in the middle of the screen. */
@@ -527,7 +555,7 @@
       {:else}
       <div class="row k{row.k}" class:bm={marked.has(r)} class:cur={current !== null && r >= current.row && r < current.row + current.rows} class:found={flashRow === r}>
         <button type="button" class="ln" tabindex="-1" title="{marked.has(r) ? 'Remove the bookmark' : 'Bookmark this line (Ctrl+B)'}" onclick={() => toggleMark(r)}>{row.l ? row.l.n : ''}</button>
-        <span class="tx" class:fill={!row.l}>{#if row.l}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.l, langL)}</span>{:else if row.k === 6 && moveStart && row.m}<button type="button" class="moved-to" onclick={() => onGotoLine?.(true, row.m ?? 1)}>↖ moved here from line {fmtNum(row.m)}</button>{/if}</span>
+        <span class="tx" class:fill={!row.l} ondblclick={() => row.l && startEdit(r, true, row.l)} role="presentation">{#if editing && editing.row === r && editing.left}<input class="lineedit" bind:value={editing.text} use:focusOnMount onkeydown={(e) => { e.stopPropagation(); if (e.key === 'Enter') finishEdit(true); else if (e.key === 'Escape') finishEdit(false); }} onblur={() => finishEdit(false)} aria-label="Edit line {row.l?.n}" />{:else if row.l}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.l, langL)}</span>{:else if row.k === 6 && moveStart && row.m}<button type="button" class="moved-to" onclick={() => onGotoLine?.(true, row.m ?? 1)}>↖ moved here from line {fmtNum(row.m)}</button>{/if}</span>
         <span class="seam">
           {#if starts}
             <button
@@ -541,10 +569,17 @@
           {/if}
         </span>
         <button type="button" class="ln r" tabindex="-1" title="{marked.has(r) ? 'Remove the bookmark' : 'Bookmark this line (Ctrl+B)'}" onclick={() => toggleMark(r)}>{row.r ? row.r.n : ''}</button>
-        <span class="tx" class:fill={!row.r}>{#if row.r}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.r, langR)}</span>{:else if row.k === 5 && moveStart && row.m}<button type="button" class="moved-to" onclick={() => onGotoLine?.(false, row.m ?? 1)}>moved to line {fmtNum(row.m)} ↘</button>{/if}</span>
+        <span class="tx" class:fill={!row.r} ondblclick={() => row.r && startEdit(r, false, row.r)} role="presentation">{#if editing && editing.row === r && !editing.left}<input class="lineedit" bind:value={editing.text} use:focusOnMount onkeydown={(e) => { e.stopPropagation(); if (e.key === 'Enter') finishEdit(true); else if (e.key === 'Escape') finishEdit(false); }} onblur={() => finishEdit(false)} aria-label="Edit line {row.r?.n}" />{:else if row.r}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.r, langR)}</span>{:else if row.k === 5 && moveStart && row.m}<button type="button" class="moved-to" onclick={() => onGotoLine?.(false, row.m ?? 1)}>moved to line {fmtNum(row.m)} ↘</button>{/if}</span>
       </div>
       {/if}
     {/each}
+    {#if lens && current && onCopy && (canEdit.left || canEdit.right)}
+      <!-- Merge: copy the current difference to the other side. -->
+      <div class="mergebar" style:top="{lens.y >= 34 ? lens.y - 32 : lens.y + lens.h + 4}px">
+        <button type="button" disabled={!canEdit.left} onclick={() => current && onCopy?.(current.row, true)} title="Make the original match the new version here">← Copy to the left</button>
+        <button type="button" disabled={!canEdit.right} onclick={() => current && onCopy?.(current.row, false)} title="Make the new version match the original here">Copy to the right →</button>
+      </div>
+    {/if}
     {#if lens}
       {#key lensPop}
         <div class="lens" class:slide={lensSlide} class:pop={lensPop > 0} style:transform="translateY({lens.y}px)" style:height="{lens.h}px" aria-hidden="true"></div>
@@ -918,6 +953,71 @@
   }
   .row.il.k2 ins {
     color: inherit;
+  }
+
+  /* ---- Editing ---- */
+  .lineedit {
+    width: calc(100% - 6px);
+    height: calc(var(--rh) - 2px);
+    margin: 1px 0;
+    padding: 0 4px;
+    border: 1px solid var(--t-acc);
+    border-radius: 4px;
+    background: var(--t-card);
+    color: var(--t-strong);
+    font: inherit;
+    line-height: inherit;
+    outline: none;
+    box-shadow: 0 0 0 3px var(--t-acc-bg);
+    user-select: text;
+  }
+  .mergebar {
+    position: absolute;
+    left: 50%;
+    z-index: 3;
+    display: flex;
+    gap: 4px;
+    padding: 3px;
+    border-radius: 10px;
+    background: var(--t-card2);
+    border: 1px solid var(--t-line2);
+    box-shadow: 0 8px 24px -10px rgba(0, 0, 0, 0.45);
+    transform: translateX(-50%);
+    font-family: var(--font-ui);
+    animation: merge-in 0.18s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  @keyframes merge-in {
+    from {
+      opacity: 0;
+      transform: translate(-50%, 3px);
+    }
+  }
+  .mergebar button {
+    height: 24px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 7px;
+    background: none;
+    color: var(--t-fg);
+    font: 500 12px var(--font-ui);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .mergebar button:hover:not(:disabled) {
+    background: var(--t-acc-bg);
+    color: var(--t-acc);
+  }
+  .mergebar button:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+  .mergebar button:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .mergebar {
+      animation: none;
+    }
   }
 
   /* A folded run of unchanged lines: one quiet row across both cards. */
