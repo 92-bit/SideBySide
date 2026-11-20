@@ -69,7 +69,7 @@
       for (const el of viewport.querySelectorAll<HTMLElement>('.in')) w = Math.max(w, el.offsetWidth);
       longestPx = w;
       const tx = viewport.querySelector<HTMLElement>('.tx');
-      paneW = tx ? tx.clientWidth - 10 : 0; // minus the padding on the left
+      paneW = tx ? tx.clientWidth - 12 : 0; // minus the padding on the left
     });
   });
   const maxX = $derived(Math.max(0, longestPx - paneW + 24));
@@ -148,30 +148,52 @@
     return top;
   }
 
-  async function go(hit: Hit | null) {
+  // The frame around the current difference. It slides to the next one when that is a click
+  // and the view doesn't have to scroll; keyboard jumps (F7/F8) and scrolling move it at once.
+  let lensSlide = $state(false);
+  let lensPop = $state(0);
+  const lens = $derived.by(() => {
+    if (!current) return null;
+    // Measured from the rows on screen (rowsTop), so the frame always sits on the text it marks.
+    const a = Math.max(current.row - rowsTop, -1);
+    const b = Math.min(current.row + current.rows - rowsTop, visible + 1);
+    if (b <= a || b < 0 || a > visible) return null;
+    return { y: a * rowH, h: (b - a) * rowH };
+  });
+
+  async function go(hit: Hit | null, animate = false) {
     if (!hit) return;
+    const onScreen = hit.row >= top && hit.row + Math.min(hit.rows, visible) <= top + visible;
+    lensSlide = animate && onScreen && current !== null;
+    // Once it has slid, scrolling by hand moves the frame with the text again.
+    if (lensSlide) setTimeout(() => (lensSlide = false), 320);
+    if (animate && !onScreen) lensPop++; // after a jump, the frame glows in instead
     current = hit;
     flashRow = null;
     onCurrent(hit);
-    const span = Math.min(hit.rows, visible);
-    if (hit.row < top || hit.row + span > top + visible) setTop(hit.row - Math.min(3, Math.floor(visible / 4)));
+    if (!onScreen) setTop(hit.row - Math.min(3, Math.floor(visible / 4)));
   }
   // One step at a time: pressing F8 twice quickly moves two differences, not one.
   let steps: Promise<void> = Promise.resolve();
-  function step(dir: 1 | -1) {
+  function step(dir: 1 | -1, animate: boolean) {
     steps = steps
       .then(async () => {
         const from = current ? current.row : top;
-        await go(await nav(from, dir === 1 && !current ? 0 : dir));
+        await go(await nav(from, dir === 1 && !current ? 0 : dir), animate);
       })
       .catch(() => {});
     return steps;
   }
-  export function next() {
-    return step(1);
+  /** animate: true for mouse clicks; keyboard jumps stay instant. */
+  export function next(animate = false) {
+    return step(1, animate);
   }
-  export function prev() {
-    return step(-1);
+  export function prev(animate = false) {
+    return step(-1, animate);
+  }
+  /** A pin in the middle was clicked: go to the difference that starts at `row`. */
+  function goToRow(row: number) {
+    steps = steps.then(async () => go(await nav(row, 0), true)).catch(() => {});
   }
 
   // Search highlights: split text into pieces that match the search and pieces that don't.
@@ -289,13 +311,32 @@
     {/if}
     {#each rows as row, i (rowsTop + i)}
       {@const r = rowsTop + i}
+      {@const starts = row.k !== 0 && (i === 0 ? r === 0 : rows[i - 1].k === 0) /* changed + added lines together are one difference */}
+      {@const isCur = current !== null && r === current.row}
       <div class="row k{row.k}" class:cur={current !== null && r >= current.row && r < current.row + current.rows} class:found={flashRow === r}>
         <span class="ln">{row.l ? row.l.n : ''}</span>
         <span class="tx" class:fill={!row.l}>{#if row.l}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.l)}</span>{/if}</span>
+        <span class="seam">
+          {#if starts}
+            <button
+              type="button"
+              class="pin p{row.k}"
+              class:on={isCur}
+              tabindex="-1"
+              title={isCur ? `Difference ${(current?.index ?? 0) + 1}` : 'Go to this difference'}
+              onclick={() => goToRow(r)}
+            >{isCur ? (current?.index ?? 0) + 1 : ''}</button>
+          {/if}
+        </span>
         <span class="ln r">{row.r ? row.r.n : ''}</span>
         <span class="tx" class:fill={!row.r}>{#if row.r}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.r)}</span>{/if}</span>
       </div>
     {/each}
+    {#if lens}
+      {#key lensPop}
+        <div class="lens" class:slide={lensSlide} class:pop={lensPop > 0} style:transform="translateY({lens.y}px)" style:height="{lens.h}px" aria-hidden="true"></div>
+      {/key}
+    {/if}
   </div>
 
   <div
@@ -322,37 +363,65 @@
     flex: 1;
     min-height: 0;
     display: flex;
+    gap: 8px;
     position: relative;
   }
   .rows {
+    position: relative;
     flex: 1;
     min-width: 0;
     overflow: hidden;
+    padding-bottom: 12px;
     font-family: 'Cascadia Mono', Consolas, ui-monospace, monospace;
     font-size: var(--fs);
     line-height: var(--rh);
+  }
+  /* The two cards behind the text (their tops are the file headers above). */
+  .rows::before,
+  .rows::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: calc(50% - var(--gw) / 2);
+    background: var(--t-card);
+    border: 1px solid var(--t-line);
+    border-top: 0;
+    border-radius: 0 0 14px 14px;
+  }
+  .rows::before {
+    left: 0;
+  }
+  .rows::after {
+    right: 0;
   }
   .rows:focus {
     outline: none;
   }
   .row {
+    position: relative;
+    z-index: 1;
     display: grid;
-    grid-template-columns: var(--lnw) 1fr var(--lnw) 1fr;
+    grid-template-columns: var(--lnw) 1fr var(--gw) var(--lnw) 1fr;
     height: var(--rh);
   }
+  .row > :first-child {
+    margin-left: 1px;
+  }
+  .row > :last-child {
+    margin-right: 1px;
+  }
   .ln {
-    color: var(--ln-fg);
-    background: var(--ln-bg);
+    color: var(--t-faint);
     text-align: right;
     padding-right: 10px;
     font-size: 0.92em;
-  }
-  .ln.r {
-    border-left: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
   }
   .tx {
     overflow: hidden;
-    padding-left: 10px;
+    padding-left: 12px;
+    color: var(--t-fg);
     user-select: text;
   }
   .in {
@@ -362,65 +431,176 @@
   }
   .k1 .tx,
   .k1 .ln {
-    background: var(--chg);
+    background: var(--t-chg);
   }
   .k2 .tx:not(.fill),
   .k2 .ln.r {
-    background: var(--add);
+    background: var(--t-add);
   }
   .k3 .tx:not(.fill),
   .k3 .ln:first-child {
-    background: var(--del);
+    background: var(--t-del);
   }
   .k1 .ln,
   .k2 .ln,
   .k3 .ln {
-    color: var(--ln-hot);
+    color: var(--t-muted);
+  }
+  /* A thin coloured edge on the line numbers of changed lines. */
+  .k1 .ln {
+    box-shadow: inset 2px 0 0 var(--t-chg-s);
+  }
+  .k2 .ln.r {
+    box-shadow: inset 2px 0 0 var(--t-add-s);
+  }
+  .k3 .ln:first-child {
+    box-shadow: inset 2px 0 0 var(--t-del-s);
   }
   .tx.fill {
-    background: repeating-linear-gradient(135deg, var(--fill-a) 0 6px, var(--fill-b) 6px 7px);
+    background: repeating-linear-gradient(135deg, transparent 0 6px, var(--t-stripe) 6px 7px);
   }
   mark {
-    background: var(--mark);
+    background: var(--t-mark);
     color: inherit;
-    border-radius: 2px;
+    border-radius: 3px;
   }
   .hit {
-    background: var(--accent);
-    color: var(--on-accent);
+    background: var(--t-acc);
+    color: var(--t-on-acc);
     border-radius: 2px;
   }
-  .row.cur > .ln:first-child,
-  .row.cur > .ln.r {
-    box-shadow: inset 3px 0 0 var(--accent);
-  }
   .row.found {
-    outline: 1px solid var(--accent);
+    outline: 1px solid var(--t-acc);
     outline-offset: -1px;
   }
+
+  /* The seam between the cards, with a pin at the start of each difference. */
+  .seam {
+    display: grid;
+    place-items: center;
+    overflow: visible;
+  }
+  .pin {
+    min-width: 12px;
+    height: 12px;
+    padding: 0;
+    border-radius: 999px;
+    border: 1px solid var(--t-line2);
+    background: var(--t-card);
+    color: var(--t-on-acc);
+    font: 600 10px/1 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    transition:
+      transform 0.2s cubic-bezier(0.23, 1, 0.32, 1),
+      background-color 0.2s ease,
+      box-shadow 0.25s ease;
+  }
+  .pin.p1 {
+    border-color: color-mix(in srgb, var(--t-chg-s) 70%, transparent);
+  }
+  .pin.p2 {
+    border-color: color-mix(in srgb, var(--t-add-s) 70%, transparent);
+  }
+  .pin.p3 {
+    border-color: color-mix(in srgb, var(--t-del-s) 70%, transparent);
+  }
+  .pin:hover {
+    transform: scale(1.25);
+  }
+  .pin:active {
+    transform: scale(0.95);
+  }
+  .pin.on {
+    min-width: 22px;
+    height: 22px;
+    padding: 0 6px;
+    border-color: transparent;
+    background: var(--t-acc);
+    box-shadow:
+      0 0 0 4px var(--t-acc-bg),
+      0 0 18px var(--t-glow1);
+    animation: pin-in 0.3s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .pin.on:hover {
+    transform: none;
+  }
+  @keyframes pin-in {
+    from {
+      transform: scale(0.6);
+      opacity: 0;
+    }
+  }
+
+  /* The frame around the current difference. */
+  .lens {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    z-index: 2;
+    pointer-events: none;
+    border-radius: 8px;
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--t-acc) 60%, transparent),
+      0 0 24px -6px var(--t-glow1);
+  }
+  .lens.slide {
+    transition:
+      transform 0.26s cubic-bezier(0.77, 0, 0.175, 1),
+      height 0.26s cubic-bezier(0.77, 0, 0.175, 1);
+  }
+  .lens.pop {
+    animation: lens-in 0.32s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  @keyframes lens-in {
+    from {
+      opacity: 0;
+      box-shadow:
+        0 0 0 6px color-mix(in srgb, var(--t-acc) 25%, transparent),
+        0 0 32px 0 var(--t-glow1);
+    }
+  }
+
   .empty {
-    color: var(--muted);
+    position: relative;
+    z-index: 1;
+    color: var(--t-muted);
     text-align: center;
     margin-top: 60px;
     font-family: 'Segoe UI', system-ui, sans-serif;
   }
+  /* The difference map, as a slim rounded strip beside the cards. */
   .map {
     position: relative;
     width: 14px;
     flex: none;
-    background: var(--map-bg);
-    border-left: 1px solid var(--border);
+    margin-bottom: 12px;
+    overflow: hidden;
+    background: var(--t-card);
+    border: 1px solid var(--t-line);
+    border-radius: 10px;
     touch-action: none;
   }
   .map canvas {
     display: block;
+    margin-left: -1px;
   }
   .thumb {
     position: absolute;
     left: 0;
     right: 0;
-    background: var(--thumb);
-    border-radius: 2px;
+    background: var(--t-line2);
+    border-radius: 3px;
     pointer-events: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .lens.slide {
+      transition: none;
+    }
+    .lens.pop,
+    .pin.on {
+      animation: none;
+    }
   }
 </style>

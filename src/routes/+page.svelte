@@ -88,13 +88,28 @@
   // Show the Install button only for the portable copy on Windows.
   const canInstall = $derived(!!install?.supported && !install.runningInstalled);
 
+  // The seam between the two file cards: wide enough for the current difference's number ("12,345").
+  const seamW = $derived(summary ? Math.max(40, fmtNum(summary.blocks).length * 7 + 22) : 40);
+
+  /** The folder part of a path, shortened to its last two folders. */
+  function folderOf(p: string): string {
+    const parts = p.split(/[\\/]/).slice(0, -1);
+    return parts.length > 3 ? `…\\${parts.slice(-2).join('\\')}` : parts.join('\\');
+  }
+  // The swap button turns half a circle each time it is used.
+  let swapped = $state(false);
+  function swapCards() {
+    swapped = !swapped;
+    swap();
+  }
+
   const isPasted = (p: string | null) => !!p && /[\\/]SideBySide[\\/]Pasted text \(/.test(p);
 
   // The counter rolls only for clicks on the arrows; F7/F8 change it instantly (keys are used a lot).
   let roll = $state(0);
   function stepDiff(d: 1 | -1) {
     roll = d;
-    Promise.resolve(d > 0 ? view?.next() : view?.prev()).finally(() => setTimeout(() => (roll = 0)));
+    Promise.resolve(d > 0 ? view?.next(true) : view?.prev(true)).finally(() => setTimeout(() => (roll = 0)));
   }
 
   function pickLook(next: Look, from: { x: number; y: number }) {
@@ -198,6 +213,12 @@
     findMode = null;
     paths = { left: null, right: null };
     closeCompare();
+  }
+  /** "New" in the top bar: back to the start screen. */
+  function newCompare() {
+    closeAll();
+    pasteMode = false;
+    recentOpen = false;
   }
 
   function toggle(k: 'spaces' | 'blank' | 'caseLetters') {
@@ -360,6 +381,14 @@
 
 <div class="app">
   <TitleBar {look} onLook={pickLook} {onHelp}>
+    {#snippet lead()}
+      <button type="button" class="lb" disabled={!summary && !paths.left && !paths.right && !pasteMode} onclick={newCompare} title="New comparison (closes this one)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg><span class="lbl">New</span>
+      </button>
+      <button type="button" class="lb" class:on={recentOpen} aria-pressed={recentOpen} disabled={!recent.length && !recentOpen} onclick={() => (recentOpen = !recentOpen)} title="Recent comparisons">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></svg><span class="lbl">Recent</span>
+      </button>
+    {/snippet}
     {#snippet island()}
       {@const none = !summary || summary.blocks === 0}
       <button type="button" class="ib sq" disabled={none} onclick={() => stepDiff(-1)} title="Previous difference (F7)" aria-label="Previous difference">
@@ -377,9 +406,6 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
       </button>
       <i class="div"></i>
-      <button type="button" class="ib" disabled={!paths.left || !paths.right} onclick={swap} title="Swap left and right">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h11l-3-3M17 17H6l3 3" /></svg><span class="lbl">Swap</span>
-      </button>
       <button type="button" class="ib" disabled={!summary} onclick={() => (findMode = 'find')} title="Find text (Ctrl+F)">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="M20 20l-4.5-4.5" /></svg><span class="lbl">Find</span>
       </button>
@@ -411,21 +437,6 @@
   </TitleBar>
 
   <div class="body">
-    <nav class="activity" aria-label="Sections">
-      <button type="button" class:on={!recentOpen} title="Compare files" aria-label="Compare files" onclick={() => (recentOpen = false)}>
-        <svg viewBox="0 0 24 24" width="20" height="20"><rect x="3" y="4" width="7.5" height="16" rx="1.5" /><rect x="13.5" y="4" width="7.5" height="16" rx="1.5" /></svg>
-      </button>
-      <button type="button" title="Compare folders (coming later)" aria-label="Compare folders" disabled>
-        <svg viewBox="0 0 24 24" width="20" height="20"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
-      </button>
-      <button type="button" class:on={recentOpen} title="Recent comparisons" aria-label="Recent comparisons" aria-pressed={recentOpen} onclick={() => (recentOpen = !recentOpen)}>
-        <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></svg>
-      </button>
-      <button type="button" class="bottom" title="Settings (coming soon)" aria-label="Settings" disabled>
-        <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="3" /><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1" /></svg>
-      </button>
-    </nav>
-
     {#if recentOpen}
       <aside class="panel" aria-label="Recent comparisons">
         <h2>Recent comparisons</h2>
@@ -434,17 +445,6 @@
     {/if}
 
     <main class="main">
-      <div class="tabs">
-        <span class="tab on">
-          {#if summary}
-            {summary.left.name} ↔ {summary.right.name}
-            <button type="button" class="tab-x" title="Close this comparison" aria-label="Close comparison" onclick={closeAll}>×</button>
-          {:else}
-            New comparison
-          {/if}
-        </span>
-      </div>
-
       {#if findMode && summary}
         <FindBar
           bind:this={findBar}
@@ -466,17 +466,25 @@
         </div>
       {/if}
 
-      <div class="stage" bind:this={stageEl}>
+      <div class="stage" class:cmp={!!summary} bind:this={stageEl} style:--gw="{seamW}px">
         {#if summary}
-          <div class="paths">
+          <div class="heads">
             {#each [['left', summary.left], ['right', summary.right]] as const as [side, info] (side)}
-              <div class="pcell" class:drop={dropSide === side}>
-                <span class="tag" class:old={side === 'left'} class:new={side === 'right'}>{side === 'left' ? 'Original' : 'New'}</span>
-                <span class="pname" title={info.path}>{isPasted(info.path) ? 'Pasted text' : info.path}</span>
-                <span class="meta">{fmtSize(info.size)} · {fmtNum(info.lines)} lines</span>
+              {@const pasted = isPasted(info.path)}
+              <div class="fh" class:old={side === 'left'} class:new={side === 'right'} class:drop={dropSide === side} style:grid-column={side === 'left' ? 1 : 3}>
+                <span class="ic" aria-hidden="true">{side === 'left' ? 'OLD' : 'NEW'}</span>
+                <div class="t" title={info.path}>
+                  <b><span class="sr">{side === 'left' ? 'Original: ' : 'New: '}</span>{pasted ? 'Pasted text' : info.name}</b>
+                  <small>{pasted ? '' : `${folderOf(info.path)} · `}{fmtSize(info.size)} · {fmtNum(info.lines)} lines</small>
+                </div>
                 <button type="button" class="change" onclick={() => choose(side)}>Change…</button>
               </div>
             {/each}
+            <div class="swapdot">
+              <button type="button" class:spun={swapped} onclick={swapCards} title="Swap left and right" aria-label="Swap left and right">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h11l-3-3M17 17H6l3 3" /></svg>
+              </button>
+            </div>
           </div>
           {#key summary}
             <DiffView
@@ -554,13 +562,20 @@
     {:else if error}
       <span>Couldn't compare</span>
     {:else if summary}
-      <span>
-        {#if summary.blocks === 0}
-          Files are identical{ignore.spaces || ignore.caseLetters || ignore.blank ? ' (with ignore options)' : ''}
-        {:else}
-          {fmtNum(summary.blocks)} {summary.blocks === 1 ? 'difference' : 'differences'} · {fmtNum(summary.changed)} changed · {fmtNum(summary.added)} added · {fmtNum(summary.removed)} removed
-        {/if}
-      </span>
+      {#if summary.blocks === 0}
+        <span class="same">✓ Files are identical{ignore.spaces || ignore.caseLetters || ignore.blank ? ' (with ignore options)' : ''}</span>
+      {:else}
+        {@const parts = summary.changed + summary.added + summary.removed || 1}
+        {#key summary}
+          <span class="stack" aria-hidden="true">
+            <i class="c" style:flex={summary.changed / parts}></i><i class="a" style:flex={summary.added / parts}></i><i class="d" style:flex={summary.removed / parts}></i>
+          </span>
+        {/key}
+        <b>{fmtNum(summary.blocks)} {summary.blocks === 1 ? 'difference' : 'differences'}</b>
+        <span class="lg c">{fmtNum(summary.changed)} changed</span>
+        <span class="lg a">{fmtNum(summary.added)} added</span>
+        <span class="lg d">{fmtNum(summary.removed)} removed</span>
+      {/if}
     {:else}
       <span>Ready</span>
     {/if}
@@ -583,6 +598,7 @@
     height: 100vh;
     display: flex;
     flex-direction: column;
+    background: var(--t-bg);
   }
   .body {
     flex: 1;
@@ -590,51 +606,6 @@
     min-height: 0;
   }
 
-  /* Left icon bar */
-  .activity {
-    width: 48px;
-    flex: none;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    padding-top: 8px;
-    background: var(--bg-chrome);
-  }
-  .activity button {
-    width: 36px;
-    height: 36px;
-    display: grid;
-    place-items: center;
-    background: none;
-    border: 0;
-    border-radius: 6px;
-    color: var(--faint);
-    cursor: pointer;
-  }
-  .activity button:hover:not(:disabled) {
-    color: var(--fg-strong);
-  }
-  .activity button:disabled {
-    opacity: 0.45;
-    cursor: default;
-  }
-  .activity button.on {
-    color: var(--fg-strong);
-    box-shadow: inset 2px 0 0 var(--accent);
-    border-radius: 0 6px 6px 0;
-  }
-  .activity svg {
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.6;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-  .activity .bottom {
-    margin-top: auto;
-    margin-bottom: 8px;
-  }
 
   /* Recent panel */
   .panel {
@@ -662,45 +633,49 @@
     min-width: 0;
   }
 
-  /* Tabs */
-  .tabs {
-    height: 34px;
-    flex: none;
-    display: flex;
-    background: var(--bg-chrome);
-  }
-  .tab {
-    display: flex;
+  /* "New" and "Recent" beside the name in the top bar */
+  .lb {
+    height: 28px;
+    padding: 0 9px;
+    display: inline-flex;
     align-items: center;
-    gap: 10px;
-    padding: 0 16px;
-    font-size: 12px;
-    color: var(--muted);
-    max-width: 60%;
-    white-space: nowrap;
-  }
-  .tab.on {
-    background: var(--bg);
-    color: var(--fg-strong);
-    box-shadow: inset 0 1px 0 var(--accent);
-  }
-  .tab-x {
-    background: none;
+    gap: 6px;
     border: 0;
-    color: var(--muted);
-    width: 20px;
-    height: 20px;
-    border-radius: 4px;
-    font-size: 15px;
-    line-height: 1;
+    border-radius: 8px;
+    background: none;
+    color: var(--t-muted);
+    font-size: 12.5px;
+    white-space: nowrap;
     cursor: pointer;
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease,
+      transform 0.16s cubic-bezier(0.23, 1, 0.32, 1);
   }
-  .tab-x:hover {
-    background: var(--hover);
-    color: var(--fg-strong);
+  .lb:hover:not(:disabled),
+  .lb.on {
+    background: var(--t-line);
+    color: var(--t-strong);
+  }
+  .lb:active:not(:disabled) {
+    transform: scale(0.95);
+  }
+  .lb:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+  @container bar (max-width: 1240px) {
+    .lb .lbl {
+      display: none;
+    }
+    .lb {
+      width: 28px;
+      padding: 0;
+      justify-content: center;
+    }
   }
 
-  /* Toolbar */
+
   /* ---- The island (the main buttons in the top bar) ---- */
   .ib {
     height: 30px;
@@ -919,55 +894,135 @@
     flex-direction: column;
     position: relative;
   }
+  .stage.cmp {
+    padding: 4px 14px 0;
+  }
 
-  /* File names above the comparison */
-  .paths {
+  /* The file cards' headers (the cards themselves are drawn by DiffView) */
+  .heads {
     flex: none;
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    padding-right: 14px;
-    border-bottom: 1px solid var(--border);
-    font-size: 12px;
+    grid-template-columns: 1fr var(--gw, 40px) 1fr;
+    margin-right: 22px; /* the difference map (14px) and its gap (8px) */
   }
-  .pcell {
+  .fh {
+    grid-row: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 5px 10px;
-    min-width: 0;
-    transition: background 0.15s ease;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--t-card2);
+    border: 1px solid var(--t-line);
+    border-bottom: 0;
+    border-radius: 14px 14px 0 0;
+    transition: background-color 0.15s ease;
   }
-  .pcell + .pcell {
-    border-left: 1px solid var(--border);
+  .fh.drop {
+    background: var(--t-acc-bg);
   }
-  .pcell.drop {
-    background: var(--accent-bg);
+  .fh .ic {
+    width: 28px;
+    height: 28px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
   }
-  .pname {
+  .fh.old .ic {
+    background: var(--t-del);
+    color: var(--t-del-s);
+  }
+  .fh.new .ic {
+    background: var(--t-add);
+    color: var(--t-add-s);
+  }
+  .fh .t {
     flex: 1;
     min-width: 0;
+  }
+  .fh b,
+  .fh small {
+    display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    direction: rtl;
-    text-align: left;
-    color: var(--fg-strong);
   }
-  .meta {
-    color: var(--muted);
-    white-space: nowrap;
+  .fh b {
+    color: var(--t-strong);
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .fh small {
+    color: var(--t-muted);
+    font-size: 11.5px;
+  }
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
   }
   .change {
-    font-size: 11px;
+    flex: none;
+    height: 26px;
+    padding: 0 10px;
+    font-size: 12px;
     background: none;
-    border: 1px solid var(--border-2);
-    border-radius: 4px;
-    padding: 1px 8px;
-    color: var(--fg);
+    border: 1px solid var(--t-line2);
+    border-radius: 8px;
+    color: var(--t-muted);
     cursor: pointer;
+    transition:
+      color 0.15s ease,
+      transform 0.16s cubic-bezier(0.23, 1, 0.32, 1);
   }
   .change:hover {
-    background: var(--hover);
+    color: var(--t-strong);
+  }
+  .change:active {
+    transform: scale(0.96);
+  }
+  .swapdot {
+    grid-row: 1;
+    grid-column: 2;
+    display: grid;
+    place-items: center;
+  }
+  .swapdot button {
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid var(--t-line2);
+    background: var(--t-card);
+    color: var(--t-muted);
+    cursor: pointer;
+    transition:
+      transform 0.35s cubic-bezier(0.23, 1, 0.32, 1),
+      color 0.15s ease;
+  }
+  .swapdot button:hover {
+    color: var(--t-acc);
+  }
+  .swapdot button.spun {
+    transform: rotate(180deg);
+  }
+  .swapdot svg,
+  .lb svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
   /* Empty start screen */
@@ -1124,37 +1179,106 @@
 
   /* Status bar */
   .status {
-    height: 24px;
+    height: 34px;
     flex: none;
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 0 12px;
-    background: var(--status-bg);
-    color: var(--status-fg);
-    font-size: 11px;
+    gap: 14px;
+    padding: 0 16px;
+    background: var(--t-bg);
+    border-top: 1px solid var(--t-line);
+    color: var(--t-muted);
+    font-size: 12px;
     white-space: nowrap;
+    overflow: hidden;
+  }
+  .status b {
+    color: var(--t-strong);
+    font-weight: 600;
+  }
+  .status .same {
+    color: var(--ok);
+  }
+  /* A small bar: how much was changed, added and removed. */
+  .stack {
+    display: flex;
+    gap: 2px;
+    width: 110px;
+    height: 6px;
+    flex: none;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .stack i {
+    min-width: 3px;
+    transform-origin: 0 50%;
+    animation: grow-x 0.6s cubic-bezier(0.23, 1, 0.32, 1) both;
+  }
+  .stack i:nth-child(2) {
+    animation-delay: 0.08s;
+  }
+  .stack i:nth-child(3) {
+    animation-delay: 0.16s;
+  }
+  @keyframes grow-x {
+    from {
+      transform: scaleX(0);
+    }
+  }
+  .stack .c,
+  .lg.c::before {
+    background: var(--t-chg-s);
+  }
+  .stack .a,
+  .lg.a::before {
+    background: var(--t-add-s);
+  }
+  .stack .d,
+  .lg.d::before {
+    background: var(--t-del-s);
+  }
+  .lg {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .lg::before {
+    content: '';
+    width: 7px;
+    height: 7px;
+    border-radius: 2px;
   }
   .zoom {
     font: inherit;
     color: inherit;
     background: none;
     border: 0;
-    padding: 0 4px;
+    padding: 2px 6px;
     cursor: pointer;
-    border-radius: 3px;
+    border-radius: 6px;
+  }
+  .zoom:hover {
+    background: var(--t-line);
+    color: var(--t-strong);
   }
   .new-version {
     font: inherit;
     font-weight: 600;
-    color: var(--status-bg);
-    background: var(--status-fg);
+    color: var(--t-on-acc);
+    background: var(--t-acc);
     border: 0;
     border-radius: 999px;
-    padding: 1px 10px;
+    padding: 2px 10px;
     cursor: pointer;
   }
-  .zoom:hover {
-    background: rgba(255, 255, 255, 0.15);
+  @media (max-width: 900px) {
+    .lg {
+      display: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .stack i {
+      animation: none;
+    }
   }
 </style>

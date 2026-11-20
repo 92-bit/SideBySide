@@ -12,12 +12,14 @@
     look,
     onLook,
     onHelp,
+    lead,
     island,
     actions,
   }: {
     look: Look;
     onLook: (look: Look, from: { x: number; y: number }) => void;
     onHelp: (action: HelpAction) => void;
+    lead?: Snippet;
     island?: Snippet;
     actions?: Snippet;
   } = $props();
@@ -49,6 +51,9 @@
   <div class="brand" data-tauri-drag-region>
     <span class="logo" aria-hidden="true"></span>
     <span class="name" data-tauri-drag-region>SideBySide</span>
+    {#if lead}
+      <span class="lead">{@render lead()}</span>
+    {/if}
   </div>
 
   {#if island}
@@ -161,11 +166,11 @@
       transform: translate3d(5%, 4%, 0) scale(1.08);
     }
   }
+  /* Both sides keep their content's width (never squeezed under the island). */
   .brand,
   .right {
     position: relative;
-    flex: 1;
-    min-width: 0;
+    flex: 1 0 auto;
     display: flex;
     align-items: center;
   }
@@ -193,6 +198,14 @@
     border-radius: 2px;
     background: var(--t-bg);
     opacity: 0.85;
+  }
+  .lead {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: 6px;
+    font-weight: 400;
+    letter-spacing: 0;
   }
   .island {
     position: relative;
