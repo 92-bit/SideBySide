@@ -30,7 +30,7 @@
   --t-s: #f5b97a;
   --t-num: #5eead4;
   --t-sec: #c4a7ff;
-  --t-cmc: #5b6178;
+  --t-cmc: #797f93;
   color-scheme: dark;
 }
 :root[data-theme='light'] {
@@ -62,7 +62,7 @@
   --t-s: #b45309;
   --t-num: #0f766e;
   --t-sec: #7c3aed;
-  --t-cmc: #9aa0b3;
+  --t-cmc: #6f7486;
   color-scheme: light;
 }
 

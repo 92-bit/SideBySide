@@ -76,7 +76,7 @@ export const THEMES: ThemeInfo[] = [
       s: '#f5b97a',
       num: '#5eead4',
       sec: '#c4a7ff',
-      cmc: '#5b6178',
+      cmc: '#797f93',
     },
     light: {
       bg: '#eef0f7',
@@ -107,7 +107,7 @@ export const THEMES: ThemeInfo[] = [
       s: '#b45309',
       num: '#0f766e',
       sec: '#7c3aed',
-      cmc: '#9aa0b3',
+      cmc: '#6f7486',
     },
   },
   {
@@ -143,7 +143,7 @@ export const THEMES: ThemeInfo[] = [
       s: '#f0a27a',
       num: '#63e6be',
       sec: '#f4efe4',
-      cmc: '#6c665b',
+      cmc: '#8d877b',
     },
     light: {
       bg: '#f3efe7',
@@ -174,7 +174,7 @@ export const THEMES: ThemeInfo[] = [
       s: '#a4441c',
       num: '#0b7a75',
       sec: '#1d1b17',
-      cmc: '#a39b8a',
+      cmc: '#797366',
     },
   },
   {
@@ -210,7 +210,7 @@ export const THEMES: ThemeInfo[] = [
       s: '#c6f432',
       num: '#f0abfc',
       sec: '#ffffff',
-      cmc: '#4f4f5a',
+      cmc: '#7c7c85',
     },
     light: {
       bg: '#f4f4ef',
@@ -241,7 +241,7 @@ export const THEMES: ThemeInfo[] = [
       s: '#3f6212',
       num: '#a21caf',
       sec: '#000000',
-      cmc: '#a1a198',
+      cmc: '#72726f',
     },
   },
   {
@@ -277,7 +277,7 @@ export const THEMES: ThemeInfo[] = [
       s: '#e0af68',
       num: '#7dcfff',
       sec: '#bb9af7',
-      cmc: '#5c6370',
+      cmc: '#818792',
     },
     light: {
       bg: '#eef0f3',
@@ -308,7 +308,7 @@ export const THEMES: ThemeInfo[] = [
       s: '#9a4307',
       num: '#0b7285',
       sec: '#7048e8',
-      cmc: '#9aa0a6',
+      cmc: '#71757c',
     },
   },
   {
@@ -344,7 +344,7 @@ export const THEMES: ThemeInfo[] = [
       s: '#ffb37a',
       num: '#7ee0d0',
       sec: '#ff8fb8',
-      cmc: '#6a5a70',
+      cmc: '#8a7b90',
     },
     light: {
       bg: '#faf3f5',
@@ -375,7 +375,7 @@ export const THEMES: ThemeInfo[] = [
       s: '#c2410c',
       num: '#0b7285',
       sec: '#c2185b',
-      cmc: '#b39aab',
+      cmc: '#846f7d',
     },
   },
   {
@@ -411,7 +411,7 @@ export const THEMES: ThemeInfo[] = [
       s: '#e8b04b',
       num: '#b5c7ff',
       sec: '#e8b04b',
-      cmc: '#56655b',
+      cmc: '#78867c',
     },
     light: {
       bg: '#f1f4ef',
@@ -442,7 +442,7 @@ export const THEMES: ThemeInfo[] = [
       s: '#9a5b13',
       num: '#1864ab',
       sec: '#2b6e4f',
-      cmc: '#9aa79f',
+      cmc: '#6b7871',
     },
   },
   {
@@ -478,7 +478,7 @@ export const THEMES: ThemeInfo[] = [
       s: '#ffd0a0',
       num: '#b4f0ff',
       sec: '#c3b5ff',
-      cmc: '#4f6478',
+      cmc: '#728597',
     },
     light: {
       bg: '#eef3f7',
@@ -509,7 +509,7 @@ export const THEMES: ThemeInfo[] = [
       s: '#c2410c',
       num: '#0b7285',
       sec: '#5f3dc4',
-      cmc: '#9fb0bf',
+      cmc: '#657788',
     },
   },
   {

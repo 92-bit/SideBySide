@@ -4,6 +4,8 @@
   import { onMount, tick } from 'svelte';
   import { CHANGED, fetchRows, nav, overview, type Cell, type Hit, type Row, type Summary } from '#lib/api.ts';
   import { themeColor } from '#lib/theme.ts';
+  import { colorLine, langFor, type Tok } from '#lib/syntax.ts';
+  import { prefs } from '#lib/prefs.svelte.ts';
 
   let {
     summary,
@@ -202,20 +204,60 @@
     steps = steps.then(async () => go(await nav(row, 0), true)).catch(() => {});
   }
 
-  // Search highlights: split text into pieces that match the search and pieces that don't.
-  function hits(t: string): { t: string; h: boolean }[] {
-    if (!query) return [{ t, h: false }];
-    const hay = matchCase ? t : t.toLowerCase();
-    const needle = matchCase ? query : query.toLowerCase();
-    if (hay.length !== t.length) return [{ t, h: false }];
-    const out: { t: string; h: boolean }[] = [];
-    let from = 0;
-    for (let i = hay.indexOf(needle); i !== -1; i = hay.indexOf(needle, i + needle.length)) {
-      if (i > from) out.push({ t: t.slice(from, i), h: false });
-      out.push({ t: t.slice(i, i + needle.length), h: true });
-      from = i + needle.length;
+  // Code colours, for each side's file type (none for .txt, .log, pasted text...).
+  const langL = $derived(prefs.codeColors ? langFor(summary.left.name) : null);
+  const langR = $derived(prefs.codeColors ? langFor(summary.right.name) : null);
+
+  // A line is drawn in three layers: changed words (the engine's pieces), code colours and search
+  // matches. All three are worked out on the whole line, then cut where any of them starts or ends,
+  // so a search for "const x" is still found when the two words have different colours.
+  interface Bit {
+    t: string;
+    c: Tok;
+    hit: boolean;
+  }
+  interface Run {
+    h: boolean;
+    bits: Bit[];
+  }
+  function runs(cell: Cell, lang: string | null): Run[] {
+    const text = cell.s.length === 1 ? cell.s[0].t : cell.s.map((s) => s.t).join('');
+    const toks = colorLine(text, lang);
+    const found: [number, number][] = [];
+    if (query) {
+      const hay = matchCase ? text : text.toLowerCase();
+      const needle = matchCase ? query : query.toLowerCase();
+      if (hay.length === text.length) {
+        for (let i = hay.indexOf(needle); i !== -1; i = hay.indexOf(needle, i + needle.length)) {
+          found.push([i, i + needle.length]);
+        }
+      }
     }
-    if (from < t.length) out.push({ t: t.slice(from), h: false });
+    if (toks.length === 1 && !found.length) return cell.s.map((s) => ({ h: s.h, bits: [{ t: s.t, c: toks[0].c, hit: false }] }));
+
+    const out: Run[] = [];
+    let ti = 0;
+    let tEnd = toks[0]?.t.length ?? 0;
+    let fi = 0;
+    let pos = 0;
+    for (const s of cell.s) {
+      const run: Run = { h: s.h, bits: [] };
+      const sEnd = pos + s.t.length;
+      while (pos < sEnd) {
+        while (tEnd <= pos && ti < toks.length - 1) tEnd += toks[++ti].t.length;
+        while (fi < found.length && found[fi][1] <= pos) fi++;
+        const f = found[fi];
+        const hit = f !== undefined && f[0] <= pos;
+        const end = Math.min(sEnd, tEnd, f ? (hit ? f[1] : f[0]) : sEnd);
+        const stop = end > pos ? end : sEnd;
+        const bit = { t: text.slice(pos, stop), c: toks[ti]?.c ?? '', hit };
+        const last = run.bits[run.bits.length - 1];
+        if (last && last.c === bit.c && last.hit === bit.hit) last.t += bit.t;
+        else run.bits.push(bit);
+        pos = stop;
+      }
+      out.push(run);
+    }
     return out;
   }
 
@@ -305,8 +347,8 @@
 
 <svelte:window onkeydown={onGlobalKey} />
 
-{#snippet withHits(t: string)}{#each hits(t) as p}{#if p.h}<span class="hit">{p.t}</span>{:else}{p.t}{/if}{/each}{/snippet}
-{#snippet cellText(c: Cell)}{#each c.s as s}{#if s.h}<mark>{@render withHits(s.t)}</mark>{:else}{@render withHits(s.t)}{/if}{/each}{/snippet}
+{#snippet bits(list: Bit[])}{#each list as b}{#if b.hit}<span class="hit">{b.t}</span>{:else if b.c}<span class="c-{b.c}">{b.t}</span>{:else}{b.t}{/if}{/each}{/snippet}
+{#snippet cellText(c: Cell, lang: string | null)}{#each runs(c, lang) as s}{#if s.h}<mark>{@render bits(s.bits)}</mark>{:else}{@render bits(s.bits)}{/if}{/each}{/snippet}
 
 <div class="view" bind:clientHeight={height} bind:clientWidth={width} style:--fs="{fontSize}px" style:--rh="{rowH}px" style:--lnw="{lnW}px">
   <!-- The rows area is focusable so the arrow keys and Page Up/Down can scroll it. -->
@@ -321,7 +363,7 @@
       {@const isCur = current !== null && r === current.row}
       <div class="row k{row.k}" class:cur={current !== null && r >= current.row && r < current.row + current.rows} class:found={flashRow === r}>
         <span class="ln">{row.l ? row.l.n : ''}</span>
-        <span class="tx" class:fill={!row.l}>{#if row.l}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.l)}</span>{/if}</span>
+        <span class="tx" class:fill={!row.l}>{#if row.l}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.l, langL)}</span>{/if}</span>
         <span class="seam">
           {#if starts}
             <button
@@ -335,7 +377,7 @@
           {/if}
         </span>
         <span class="ln r">{row.r ? row.r.n : ''}</span>
-        <span class="tx" class:fill={!row.r}>{#if row.r}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.r)}</span>{/if}</span>
+        <span class="tx" class:fill={!row.r}>{#if row.r}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.r, langR)}</span>{/if}</span>
       </div>
     {/each}
     {#if lens}
@@ -474,6 +516,22 @@
     background: var(--t-acc);
     color: var(--t-on-acc);
     border-radius: 2px;
+  }
+  /* Code colours (see syntax.ts); every theme has its own. */
+  .c-k {
+    color: var(--t-k);
+  }
+  .c-s {
+    color: var(--t-s);
+  }
+  .c-num {
+    color: var(--t-num);
+  }
+  .c-sec {
+    color: var(--t-sec);
+  }
+  .c-cmc {
+    color: var(--t-cmc);
   }
   .row.found {
     outline: 1px solid var(--t-acc);

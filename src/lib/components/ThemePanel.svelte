@@ -3,6 +3,7 @@
   import { THEMES, type Palette } from '#lib/themes.ts';
   import { shadeOf, type Look, type Mode } from '#lib/theme.ts';
   import { trapFocus } from '#lib/trapFocus.ts';
+  import { prefs, setCodeColors } from '#lib/prefs.svelte.ts';
 
   let {
     look,
@@ -77,7 +78,19 @@
       </button>
     {/each}
   </div>
-  <p class="foot">Saved for next time</p>
+  <div class="foot">
+    <button
+      type="button"
+      class="sw-row"
+      role="switch"
+      aria-checked={prefs.codeColors}
+      onclick={() => setCodeColors(!prefs.codeColors)}
+    >
+      <span class="knob" aria-hidden="true"></span>
+      Colour code in code files
+    </button>
+    <span class="saved">Saved for next time</span>
+  </div>
 </div>
 
 <style>
@@ -250,15 +263,72 @@
     background: var(--acc);
   }
   .foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
     margin: 12px 0 0;
     padding-top: 10px;
     border-top: 1px solid var(--t-line);
     color: var(--t-muted);
     font-size: 11.5px;
   }
+  .sw-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 0;
+    background: none;
+    padding: 2px 4px 2px 0;
+    border-radius: 6px;
+    color: var(--t-fg);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .sw-row:hover {
+    color: var(--t-strong);
+  }
+  /* The on/off switch. */
+  .knob {
+    position: relative;
+    width: 28px;
+    height: 16px;
+    flex: none;
+    border-radius: 999px;
+    background: var(--t-line2);
+    transition: background-color 0.18s ease;
+  }
+  .knob::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--t-card);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    transition: transform 0.18s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .sw-row[aria-checked='true'] .knob {
+    background: var(--t-acc);
+  }
+  .sw-row[aria-checked='true'] .knob::after {
+    transform: translateX(12px);
+  }
+  .sw-row:active .knob::after {
+    width: 14px;
+  }
+  .saved {
+    white-space: nowrap;
+  }
   @media (prefers-reduced-motion: reduce) {
     .panel {
       animation: none;
+    }
+    .knob,
+    .knob::after {
+      transition: none;
     }
   }
 </style>
