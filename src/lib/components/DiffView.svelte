@@ -108,11 +108,17 @@
     if (top > maxTop) top = maxTop;
   });
 
-  // Measure the width of one letter, for sideways scrolling.
+  // Measure the width of one letter, for sideways scrolling. Again once the built-in code font
+  // has loaded, since until then the browser measures a stand-in font.
+  let fontsReady = $state(false);
+  onMount(() => {
+    document.fonts?.ready.then(() => (fontsReady = true));
+  });
   $effect(() => {
+    void fontsReady;
     const ctx = document.createElement('canvas').getContext('2d');
     if (!ctx || !viewport) return;
-    ctx.font = `${fontSize}px 'Cascadia Mono', Consolas, ui-monospace, monospace`;
+    ctx.font = `${fontSize}px ${getComputedStyle(document.documentElement).getPropertyValue('--font-code')}`;
     charW = ctx.measureText('0'.repeat(100)).width / 100 || fontSize * 0.6;
   });
 
@@ -372,7 +378,7 @@
     min-width: 0;
     overflow: hidden;
     padding-bottom: 12px;
-    font-family: 'Cascadia Mono', Consolas, ui-monospace, monospace;
+    font-family: var(--font-code);
     font-size: var(--fs);
     line-height: var(--rh);
   }
@@ -488,7 +494,7 @@
     border: 1px solid var(--t-line2);
     background: var(--t-card);
     color: var(--t-on-acc);
-    font: 600 10px/1 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+    font: 600 10px/1 var(--font-ui);
     font-variant-numeric: tabular-nums;
     cursor: pointer;
     transition:
@@ -568,7 +574,7 @@
     color: var(--t-muted);
     text-align: center;
     margin-top: 60px;
-    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-family: var(--font-ui);
   }
   /* The difference map, as a slim rounded strip beside the cards. */
   .map {

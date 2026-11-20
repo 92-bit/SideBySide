@@ -104,7 +104,7 @@
     flex: 1;
     min-height: 0;
     resize: none;
-    font: 13px/1.5 'Cascadia Mono', Consolas, ui-monospace, monospace;
+    font: 13px/1.5 var(--font-code);
     color: var(--t-strong);
     background: transparent;
     border: 0;

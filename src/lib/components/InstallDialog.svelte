@@ -76,25 +76,47 @@
     inset: 0;
     display: grid;
     place-items: center;
-    background: rgba(0, 0, 0, 0.45);
-    z-index: 10;
+    background: color-mix(in srgb, var(--t-bg) 60%, transparent);
+    backdrop-filter: blur(4px);
+    z-index: 40;
+    animation: fade 0.2s ease both;
+  }
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
   }
   .dialog {
     width: min(520px, calc(100vw - 32px));
-    background: var(--bg-raised);
-    border: 1px solid var(--border-2);
-    border-radius: 12px;
-    padding: 22px 24px 18px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
-    color: var(--fg);
+    background: var(--t-card2);
+    border: 1px solid var(--t-line2);
+    border-radius: 18px;
+    padding: 24px 24px 20px;
+    box-shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.55);
+    color: var(--t-fg);
+    animation: pop 0.22s cubic-bezier(0.23, 1, 0.32, 1) both;
+  }
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .backdrop,
+    .dialog {
+      animation: none;
+    }
   }
   .dialog:focus {
     outline: none;
   }
   h2 {
     margin: 0 0 10px;
-    font-size: 17px;
-    color: var(--fg-strong);
+    font-size: 18px;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    color: var(--t-strong);
   }
   p {
     margin: 0 0 12px;
@@ -145,9 +167,16 @@
   }
   button {
     font: inherit;
-    border-radius: 6px;
-    padding: 6px 16px;
+    height: 36px;
+    border-radius: 10px;
+    padding: 0 18px;
     cursor: pointer;
+    transition:
+      background-color 0.15s ease,
+      transform 0.16s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  button:active:not(:disabled) {
+    transform: scale(0.97);
   }
   button:disabled {
     opacity: 0.6;
@@ -155,19 +184,17 @@
   }
   .ghost {
     background: none;
-    border: 1px solid var(--border-2);
-    color: var(--fg);
+    border: 1px solid var(--t-line2);
+    color: var(--t-fg);
   }
   .ghost:hover:not(:disabled) {
-    background: var(--hover);
+    background: var(--t-line);
   }
   .primary {
-    background: var(--accent);
-    border: 1px solid var(--accent);
-    color: var(--on-accent);
+    border: 0;
+    background: linear-gradient(135deg, var(--t-acc), color-mix(in srgb, var(--t-acc) 60%, var(--t-acc2)));
+    color: var(--t-on-acc);
     font-weight: 600;
-  }
-  .primary:hover:not(:disabled) {
-    filter: brightness(1.08);
+    box-shadow: 0 10px 30px -12px var(--t-glow1);
   }
 </style>

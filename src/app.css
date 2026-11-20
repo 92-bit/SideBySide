@@ -116,6 +116,12 @@
   box-sizing: border-box;
 }
 
+/* Fonts: Geist and Geist Mono are built into the app (see +layout.svelte), so they work offline. */
+:root {
+  --font-ui: 'Geist Variable', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --font-code: 'Geist Mono Variable', 'Cascadia Mono', Consolas, ui-monospace, monospace;
+}
+
 html,
 body {
   margin: 0;
@@ -123,7 +129,7 @@ body {
   overflow: hidden;
   background: var(--bg);
   color: var(--fg);
-  font: 13px/1.4 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font: 13px/1.4 var(--font-ui);
   user-select: none;
   -webkit-font-smoothing: antialiased;
 }

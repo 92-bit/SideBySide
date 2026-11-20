@@ -96,31 +96,37 @@
 </div>
 
 <style>
+  /* The find / go-to-line bar: a slim rounded card above the file cards. It opens from the
+     keyboard (Ctrl+F, Ctrl+G) a lot, so it appears at once, without animation. */
   .bar {
     flex: none;
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 5px 10px;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-raised);
-    font-size: 12px;
+    margin: 4px 14px 6px;
+    padding: 6px 8px 6px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--t-line2);
+    background: var(--t-card2);
+    font-size: 12.5px;
   }
   .ico {
     fill: none;
-    stroke: var(--muted);
+    stroke: var(--t-muted);
     stroke-width: 2;
     stroke-linecap: round;
   }
   input,
   select {
     font: inherit;
-    color: var(--fg-strong);
-    background: var(--bg);
-    border: 1px solid var(--border-2);
-    border-radius: 5px;
-    padding: 4px 8px;
+    height: 28px;
+    color: var(--t-strong);
+    background: var(--t-card);
+    border: 1px solid var(--t-line2);
+    border-radius: 8px;
+    padding: 0 10px;
     user-select: text;
+    transition: border-color 0.15s ease;
   }
   input {
     width: 260px;
@@ -128,43 +134,54 @@
   input.num {
     width: 90px;
   }
+  input::placeholder {
+    color: var(--t-faint);
+  }
   input:focus,
   select:focus {
     outline: none;
-    border-color: var(--accent);
+    border-color: var(--t-acc);
   }
   button {
     font: inherit;
+    height: 28px;
     background: none;
-    border: 1px solid var(--border-2);
-    color: var(--fg);
-    border-radius: 5px;
-    padding: 3px 9px;
+    border: 1px solid var(--t-line2);
+    color: var(--t-fg);
+    border-radius: 8px;
+    padding: 0 10px;
     cursor: pointer;
+    transition:
+      background-color 0.15s ease,
+      transform 0.16s cubic-bezier(0.23, 1, 0.32, 1);
   }
   button:hover:not(:disabled) {
-    background: var(--hover);
+    background: var(--t-line);
+  }
+  button:active:not(:disabled) {
+    transform: scale(0.96);
   }
   button:disabled {
-    color: var(--faint);
+    color: var(--t-faint);
     cursor: default;
   }
   .tg.on {
-    background: var(--accent-bg);
-    border-color: var(--accent-border);
-    color: var(--accent-fg);
+    background: var(--t-acc-bg);
+    border-color: color-mix(in srgb, var(--t-acc) 45%, transparent);
+    color: var(--t-acc);
   }
   .x {
     border-color: transparent;
     font-size: 15px;
     line-height: 1;
-    padding: 2px 7px;
+    width: 28px;
+    padding: 0;
   }
   .lbl {
-    color: var(--muted);
+    color: var(--t-muted);
   }
   .status {
-    color: var(--muted);
+    color: var(--t-muted);
     margin-left: 4px;
   }
   .grow {
