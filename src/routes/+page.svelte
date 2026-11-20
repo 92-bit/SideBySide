@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { open } from '@tauri-apps/plugin-dialog';
+  import { open, save } from '@tauri-apps/plugin-dialog';
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import TitleBar from '#lib/components/TitleBar.svelte';
   import RollingNumber from '#lib/components/RollingNumber.svelte';
@@ -27,6 +27,9 @@
     find,
     openFold,
     setFold,
+    saveReport,
+    openReport,
+    makePatch,
     type Spot,
     fmtNum,
     fmtSize,
@@ -374,6 +377,7 @@
   }
 
   function onWindowClick(e: MouseEvent) {
+    if (shareOpen && !(e.target as Element).closest?.('.share')) shareOpen = false;
     if (rulesOpen && rulesWrap && !rulesWrap.contains(e.target as Node)) rulesOpen = false;
     if (linesOpen && !(e.target as Element).closest?.('.lw')) linesOpen = null;
   }
@@ -429,6 +433,45 @@
     if (spot === null || !view) return false;
     await showSpot(spot);
     return true;
+  }
+
+  // ---- Share: report and patch ----
+  let shareOpen = $state(false);
+  /** A short message at the bottom (e.g. "Copied"), with an optional button; it goes away by itself. */
+  let notice = $state<{ text: string; action?: { label: string; run: () => void } } | null>(null);
+  let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+  function tell(text: string, action?: { label: string; run: () => void }) {
+    notice = { text, action };
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => (notice = null), action ? 8000 : 3500);
+  }
+  /** "old.txt vs new.txt", safe to use as a file name. */
+  const pairName = () => (summary ? `${summary.left.name} vs ${summary.right.name}`.replace(/[\/:*?"<>|]+/g, '_') : 'comparison');
+  async function exportReport() {
+    shareOpen = false;
+    if (!summary) return;
+    const path = await save({
+      title: 'Save the comparison as a report',
+      defaultPath: `${pairName()}.html`,
+      filters: [{ name: 'Web page (opens in any browser, can be printed to PDF)', extensions: ['html'] }],
+    });
+    if (!path) return;
+    try {
+      await saveReport(path, new Date().toLocaleString());
+      tell('Report saved.', { label: 'Open it', run: () => openReport() });
+    } catch (e) {
+      tell(String(e));
+    }
+  }
+  async function copyPatch() {
+    shareOpen = false;
+    if (!summary) return;
+    try {
+      await navigator.clipboard.writeText(await makePatch());
+      tell('Copied as a patch. Paste it into an e-mail, a chat or a code review.');
+    } catch (e) {
+      tell(`Couldn't copy: ${e}`);
+    }
   }
 
   // ---- Hide unchanged (folds) ----
@@ -637,6 +680,21 @@
       </span>
     {/snippet}
     {#snippet actions()}
+      <span class="share" class:open={shareOpen}>
+        <button type="button" class="sharebtn" disabled={!summary} aria-expanded={shareOpen} onclick={() => (shareOpen = !shareOpen)} title="Share: save a report or copy a patch" aria-label="Share">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M8 8l4-4 4 4M6 12v6a2 2 0 002 2h8a2 2 0 002-2v-6" /></svg>
+        </button>
+        {#if shareOpen}
+          <div class="sharemenu" role="menu">
+            <button type="button" role="menuitem" onclick={exportReport}>
+              <b>Save as a report…</b><small>A web page with every difference. Opens in any browser; print it to make a PDF.</small>
+            </button>
+            <button type="button" role="menuitem" onclick={copyPatch}>
+              <b>Copy as a patch</b><small>The differences as text, in the "diff" format that Git and code tools read.</small>
+            </button>
+          </div>
+        {/if}
+      </span>
       {#if canInstall}
         <button type="button" class="install" onclick={() => (installOpen = true)} title="Add SideBySide to your Start Menu" aria-label={install?.installed ? 'Update install' : 'Install'}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg>
@@ -822,6 +880,15 @@
 
   {#if installOpen && install}
     <InstallDialog info={install} onClose={() => (installOpen = false)} />
+  {/if}
+
+  {#if notice}
+    <div class="toast" role="status">
+      <span>{notice.text}</span>
+      {#if notice.action}
+        <button type="button" onclick={() => { notice?.action?.run(); notice = null; }}>{notice.action.label}</button>
+      {/if}
+    </div>
   {/if}
 
   <footer class="status">
@@ -1122,6 +1189,131 @@
     color: var(--t-faint);
     font-size: 11.5px;
   }
+  /* Share: a menu under the top bar's Share button. */
+  .share {
+    position: relative;
+    display: inline-flex;
+  }
+  .sharebtn {
+    display: inline-grid;
+    place-items: center;
+    width: 30px;
+    height: 28px;
+    padding: 0;
+    margin-right: 4px;
+    border: 0;
+    border-radius: 9px;
+    background: none;
+    color: var(--t-fg);
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .sharebtn:hover:not(:disabled),
+  .share.open .sharebtn {
+    background: var(--t-line);
+    color: var(--t-strong);
+  }
+  .sharebtn:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .sharebtn svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .sharemenu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 30;
+    width: 300px;
+    padding: 5px;
+    border-radius: 12px;
+    background: var(--t-card2);
+    border: 1px solid var(--t-line2);
+    box-shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.55);
+    transform-origin: calc(100% - 30px) 0;
+    animation: menu-in 0.16s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  @keyframes menu-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateY(-4px);
+    }
+  }
+  .sharemenu button {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    text-align: left;
+    color: var(--t-strong);
+    cursor: pointer;
+  }
+  .sharemenu button:hover {
+    background: var(--t-line);
+  }
+  .sharemenu b {
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+  .sharemenu small {
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: var(--t-muted);
+  }
+  /* A short message near the bottom; it goes away by itself. */
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 40px;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: min(560px, calc(100vw - 32px));
+    padding: 8px 8px 8px 16px;
+    border-radius: 12px;
+    background: var(--t-strong);
+    color: var(--t-bg);
+    font-size: 12.5px;
+    box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.5);
+    transform: translateX(-50%);
+    animation: toast-in 0.24s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translate(-50%, 8px);
+    }
+  }
+  .toast button {
+    flex: none;
+    height: 26px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--t-acc);
+    color: var(--t-on-acc);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sharemenu,
+    .toast {
+      animation: none;
+    }
+  }
   .install {
     display: inline-flex;
     align-items: center;
@@ -1167,18 +1359,22 @@
       display: inline;
     }
   }
-  @container bar (max-width: 920px) {
-    .chip .dot,
+  @container bar (max-width: 1240px) {
     .install .lbl {
       display: none;
-    }
-    .chip {
-      padding: 0 7px;
     }
     .install {
       width: 30px;
       padding: 0;
       justify-content: center;
+    }
+  }
+  @container bar (max-width: 920px) {
+    .chip .dot {
+      display: none;
+    }
+    .chip {
+      padding: 0 7px;
     }
     .div {
       margin: 0 2px;

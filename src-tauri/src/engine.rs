@@ -1478,6 +1478,11 @@ impl Comparison {
         self.total_rows
     }
 
+    /// Where each difference is: (first row, rows).
+    pub fn block_rows(&self) -> Vec<(u64, u64)> {
+        self.blocks.iter().map(|&i| (self.ops[i as usize].row, self.ops[i as usize].rows())).collect()
+    }
+
     /// The first left and right line shown at or after screen row `row`.
     fn lines_at_row(&self, row: u64) -> (u32, u32) {
         let i = self.ops.partition_point(|o| o.row + o.rows() <= row);

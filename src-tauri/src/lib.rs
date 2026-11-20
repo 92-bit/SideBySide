@@ -2,6 +2,7 @@
 // This file starts the app and connects the screen to the comparing engine (engine.rs).
 
 pub mod engine;
+pub mod export;
 pub mod fold;
 pub mod tidy;
 mod install;
@@ -30,6 +31,8 @@ struct AppState {
     pending_files: Mutex<Vec<String>>,
     /// "Hide unchanged" is switched on.
     fold_on: AtomicBool,
+    /// The last report saved, so "Open it" can open exactly that file (and nothing else).
+    saved_report: Mutex<Option<PathBuf>>,
     /// The folded runs of the comparison on screen (see fold.rs). The screen's row numbers
     /// count each fold as one row; the commands below turn them into the engine's rows.
     folds: Mutex<Folds>,
@@ -221,6 +224,40 @@ async fn find(
     Ok(found.map(|r| spot(&state, r)))
 }
 
+/// Save the comparison as an HTML report (see export.rs). `when` is the date and time to print in it.
+#[tauri::command]
+async fn save_report(state: tauri::State<'_, AppState>, path: String, when: String) -> Result<(), String> {
+    let c = current(&state).ok_or("Nothing to save")?;
+    let p = PathBuf::from(&path);
+    let target = p.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let html = export::report(&c, &when, 64 << 20)?;
+        std::fs::write(&target, html).map_err(|e| format!("Could not save the report: {e}"))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    if let Ok(mut s) = state.saved_report.lock() {
+        *s = Some(p);
+    }
+    Ok(())
+}
+
+/// Open the report that was just saved, in the browser.
+#[tauri::command]
+fn open_report(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let p = state.saved_report.lock().ok().and_then(|s| s.clone()).ok_or("No report was saved")?;
+    tauri_plugin_opener::open_path(p, None::<&str>).map_err(|e| e.to_string())
+}
+
+/// The differences as a patch (unified diff text), for the clipboard.
+#[tauri::command]
+async fn make_patch(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let c = current(&state).ok_or("Nothing to copy")?;
+    tauri::async_runtime::spawn_blocking(move || export::patch(&c, 32 << 20))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// Live reload: has a compared file changed since? False when nothing is compared.
 #[tauri::command]
 fn files_changed(state: tauri::State<'_, AppState>) -> bool {
@@ -356,6 +393,9 @@ pub fn run() {
             files_changed,
             set_fold,
             open_fold,
+            save_report,
+            open_report,
+            make_patch,
             row_for_line,
             find,
             close_compare,

@@ -93,6 +93,12 @@ export const overview = (buckets: number) => invoke<number[]>('overview', { buck
 export const rowForLine = (left: boolean, line: number) => invoke<Spot | null>('row_for_line', { left, line });
 export const find = (query: string, from: number | null, forward: boolean, matchCase: boolean) =>
   invoke<Spot | null>('find', { query, from, forward, matchCase });
+/** Save the comparison as an HTML report; `when` is printed in it. */
+export const saveReport = (path: string, when: string) => invoke<void>('save_report', { path, when });
+/** Open the report that was just saved, in the browser. */
+export const openReport = () => invoke<void>('open_report');
+/** The differences as a patch (unified diff text). */
+export const makePatch = () => invoke<string>('make_patch');
 /** "Hide unchanged" on or off; returns how many rows the screen has now. */
 export const setFold = (on: boolean) => invoke<number>('set_fold', { on });
 /** Opens the fold at screen row `row`; returns [rows gained, rows on the screen now]. */
