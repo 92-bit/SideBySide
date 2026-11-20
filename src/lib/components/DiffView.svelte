@@ -2,7 +2,7 @@
   // Shows two files side by side. Only the rows on screen are ever loaded,
   // so this works the same for a 10-line file and a 10-million-line file.
   import { onMount, tick } from 'svelte';
-  import { CHANGED, fetchRows, nav, overview, type Cell, type Hit, type Row, type Summary } from '#lib/api.ts';
+  import { CHANGED, fetchRows, fmtNum, nav, overview, type Cell, type Hit, type Row, type Summary } from '#lib/api.ts';
   import { themeColor } from '#lib/theme.ts';
   import { colorLine, langFor, type Tok } from '#lib/syntax.ts';
   import { prefs, spacingFactor } from '#lib/prefs.svelte.ts';
@@ -17,6 +17,7 @@
     onFilesChanged,
     place = null,
     bookmarks = $bindable([]),
+    onOpenFold,
   }: {
     summary: Summary;
     fontSize?: number;
@@ -26,6 +27,8 @@
     onZoom?: (step: number) => void;
     /** A file was changed on disk after it was compared, so its text can't be shown correctly. */
     onFilesChanged?: () => void;
+    /** A "⋯ unchanged lines" row was clicked (see fold.rs). */
+    onOpenFold?: (row: number) => void;
     /** After a live update: where the view was before (see getPlace). */
     place?: { top: number; x: number; atEnd: boolean } | null;
     /** Bookmarked screen rows (kept by the page, so they survive live updates). */
@@ -419,6 +422,13 @@
       {@const r = rowsTop + i}
       {@const starts = row.k !== 0 && (i === 0 ? r === 0 : rows[i - 1].k === 0) /* changed + added lines together are one difference */}
       {@const isCur = current !== null && r === current.row}
+      {#if row.k === 4}
+        <div class="row k4">
+          <button type="button" class="fold" onclick={() => onOpenFold?.(r)} title="Show these lines">
+            <span class="dots" aria-hidden="true">⋯</span>{fmtNum(row.f ?? 0)} unchanged {row.f === 1 ? 'line' : 'lines'}<span class="show">Show</span>
+          </button>
+        </div>
+      {:else}
       <div class="row k{row.k}" class:bm={marked.has(r)} class:cur={current !== null && r >= current.row && r < current.row + current.rows} class:found={flashRow === r}>
         <button type="button" class="ln" tabindex="-1" title="{marked.has(r) ? 'Remove the bookmark' : 'Bookmark this line (Ctrl+B)'}" onclick={() => toggleMark(r)}>{row.l ? row.l.n : ''}</button>
         <span class="tx" class:fill={!row.l}>{#if row.l}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.l, langL)}</span>{/if}</span>
@@ -437,6 +447,7 @@
         <button type="button" class="ln r" tabindex="-1" title="{marked.has(r) ? 'Remove the bookmark' : 'Bookmark this line (Ctrl+B)'}" onclick={() => toggleMark(r)}>{row.r ? row.r.n : ''}</button>
         <span class="tx" class:fill={!row.r}>{#if row.r}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.r, langR)}</span>{/if}</span>
       </div>
+      {/if}
     {/each}
     {#if lens}
       {#key lensPop}
@@ -677,6 +688,39 @@
       transform: scale(0.6);
       opacity: 0;
     }
+  }
+
+  /* A folded run of unchanged lines: one quiet row across both cards. */
+  .row.k4 {
+    grid-template-columns: 1fr;
+  }
+  .fold {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 0 1px;
+    border: 0;
+    border-block: 1px dashed var(--t-line2);
+    background: var(--t-stripe);
+    color: var(--t-muted);
+    font: 500 12px var(--font-ui);
+    cursor: pointer;
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease;
+  }
+  .fold:hover {
+    background: var(--t-acc-bg);
+    color: var(--t-strong);
+  }
+  .fold .dots {
+    font-size: 15px;
+    letter-spacing: 1px;
+  }
+  .fold .show {
+    color: var(--t-acc);
+    font-weight: 600;
   }
 
   /* The frame around the current difference. */

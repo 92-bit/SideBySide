@@ -32,9 +32,20 @@ export interface Cell {
 
 /** k: 0 = same, 1 = changed, 2 = added, 3 = removed */
 export interface Row {
-  k: 0 | 1 | 2 | 3;
+  /** 0 = same, 1 = changed, 2 = added, 3 = removed, 4 = folded unchanged rows */
+  k: 0 | 1 | 2 | 3 | 4;
   l: Cell | null;
   r: Cell | null;
+  /** A folded row: how many unchanged rows it hides. */
+  f?: number;
+}
+
+/** A place found by Go to line or Find. If it was inside a fold, that fold was opened:
+ *  opened = [the fold's screen row, how many rows the screen gained]. */
+export interface Spot {
+  row: number;
+  total: number;
+  opened: [number, number] | null;
 }
 
 export interface Hit {
@@ -69,9 +80,13 @@ export const fetchRows = (start: number, count: number) => invoke<Row[]>('rows',
 export const nav = (row: number, dir: number) => invoke<Hit | null>('nav', { row, dir });
 export const overview = (buckets: number) => invoke<number[]>('overview', { buckets });
 /** line starts at 1 */
-export const rowForLine = (left: boolean, line: number) => invoke<number | null>('row_for_line', { left, line });
+export const rowForLine = (left: boolean, line: number) => invoke<Spot | null>('row_for_line', { left, line });
 export const find = (query: string, from: number | null, forward: boolean, matchCase: boolean) =>
-  invoke<number | null>('find', { query, from, forward, matchCase });
+  invoke<Spot | null>('find', { query, from, forward, matchCase });
+/** "Hide unchanged" on or off; returns how many rows the screen has now. */
+export const setFold = (on: boolean) => invoke<number>('set_fold', { on });
+/** Opens the fold at screen row `row`; returns [rows gained, rows on the screen now]. */
+export const openFold = (row: number) => invoke<[number, number] | null>('open_fold', { row });
 export const closeCompare = () => invoke<void>('close_compare');
 /** Live reload: true if a compared file changed on disk since it was compared. */
 export const filesChanged = () => invoke<boolean>('files_changed');

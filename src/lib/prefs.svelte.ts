@@ -5,6 +5,7 @@ const CODE_COLORS_KEY = 'sbs-code-colors';
 const CODE_FONT_KEY = 'sbs-code-font';
 const SPACING_KEY = 'sbs-line-spacing';
 const TIDY_KEY = 'sbs-tidy';
+const FOLD_KEY = 'sbs-fold';
 
 function read(key: string): string | null {
   try {
@@ -51,7 +52,14 @@ export const prefs = $state({
   spacing: (SPACINGS.some((s) => s.id === savedSpacing) ? savedSpacing : 'normal') as Spacing,
   /** Tidy up JSON and XML files before comparing (one item per line). */
   tidy: read(TIDY_KEY) === 'on',
+  /** Hide long runs of unchanged lines (folds). */
+  fold: read(FOLD_KEY) === 'on',
 });
+
+export function setFoldPref(on: boolean) {
+  prefs.fold = on;
+  write(FOLD_KEY, on ? 'on' : 'off');
+}
 
 export function setTidy(on: boolean) {
   prefs.tidy = on;

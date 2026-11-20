@@ -2,15 +2,17 @@
 // This file starts the app and connects the screen to the comparing engine (engine.rs).
 
 pub mod engine;
+pub mod fold;
 pub mod tidy;
 mod install;
 mod update;
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use engine::{Comparison, Control, Hit, Options, Row, Summary};
+use fold::{At, Folds};
 use tauri::{Emitter, Manager};
 
 #[derive(Default)]
@@ -26,6 +28,39 @@ struct AppState {
     /// Files handed to the app (when it starts, or later from the right-click menu)
     /// that the screen hasn't picked up yet.
     pending_files: Mutex<Vec<String>>,
+    /// "Hide unchanged" is switched on.
+    fold_on: AtomicBool,
+    /// The folded runs of the comparison on screen (see fold.rs). The screen's row numbers
+    /// count each fold as one row; the commands below turn them into the engine's rows.
+    folds: Mutex<Folds>,
+}
+
+fn folds(state: &AppState) -> std::sync::MutexGuard<'_, Folds> {
+    state.folds.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Folds for a comparison, if "Hide unchanged" is on.
+fn make_folds(state: &AppState, c: &Comparison) -> Folds {
+    if state.fold_on.load(Ordering::SeqCst) { Folds::new(&c.same_runs(), c.total_rows()) } else { Folds::none(c.total_rows()) }
+}
+
+/// A place found by Go to line or Find. If it was inside a fold, that fold was opened:
+/// `opened` is (the fold's screen row, how many rows the screen gained).
+#[derive(serde::Serialize)]
+struct Spot {
+    row: u64,
+    total: u64,
+    opened: Option<(u64, u64)>,
+}
+
+/// The screen row of engine row `r`, opening the fold that hides it, if any.
+fn spot(state: &AppState, r: u64) -> Spot {
+    let Ok(mut f) = state.folds.lock() else { return Spot { row: r, total: 0, opened: None } };
+    let mut opened = None;
+    if let (_, Some(i)) = f.screen(r) {
+        opened = Some(f.open(i));
+    }
+    Spot { row: f.screen(r).0, total: f.total(), opened }
 }
 
 /// File names from a command line, made into full paths.
@@ -75,9 +110,12 @@ async fn compare(
     if state.generation.load(Ordering::SeqCst) != my_turn {
         return Err("__stale__".into());
     }
-    let summary = result.summary();
+    let mut summary = result.summary();
     // A search in the old result is no longer needed.
     replace_search(&state, Arc::default());
+    let f = make_folds(&state, &result);
+    summary.total_rows = f.total();
+    *state.folds.lock().map_err(|_| "busy")? = f;
     *state.current.lock().map_err(|_| "busy")? = Some(Arc::new(result));
     Ok(summary)
 }
@@ -96,23 +134,71 @@ fn cancel(state: tauri::State<'_, AppState>) {
 #[tauri::command]
 async fn rows(state: tauri::State<'_, AppState>, start: u64, count: u32) -> Result<Vec<Row>, String> {
     let c = current(&state).ok_or("Nothing to show")?;
-    c.rows(start, count.min(500))
+    let f = folds(&state);
+    if f.is_empty() {
+        return c.rows(start, count.min(500));
+    }
+    // Screen rows: runs of real rows, with a fold row in place of each folded run.
+    let end = start.saturating_add(count.min(500) as u64).min(f.total());
+    let mut out = Vec::new();
+    let mut s = start;
+    while s < end {
+        match f.at(s) {
+            At::Fold(i) => {
+                out.push(Row { k: 4, l: None, r: None, f: Some(f.len(i)) });
+                s += 1;
+            }
+            At::Real(r) => {
+                let n = (f.next_fold_after(s).min(end) - s) as u32;
+                out.extend(c.rows(r, n)?);
+                s += n as u64;
+            }
+        }
+    }
+    Ok(out)
 }
 
 #[tauri::command]
 fn nav(state: tauri::State<'_, AppState>, row: u64, dir: i32) -> Option<Hit> {
-    current(&state)?.nav(row, dir)
+    let f = folds(&state);
+    let hit = current(&state)?.nav(f.real(row), dir)?;
+    // Differences are never folded, so a difference's rows stay together on screen.
+    Some(Hit { row: f.screen(hit.row).0, ..hit })
 }
 
 #[tauri::command]
 fn overview(state: tauri::State<'_, AppState>, buckets: u32) -> Vec<u8> {
-    current(&state).map(|c| c.overview(buckets)).unwrap_or_default()
+    let f = folds(&state);
+    current(&state).map(|c| c.overview_mapped(buckets, f.total(), &|r| f.screen(r).0)).unwrap_or_default()
 }
 
 /// Screen row of a line number (1-based) in the original (left) or new (right) file.
 #[tauri::command]
-fn row_for_line(state: tauri::State<'_, AppState>, left: bool, line: u32) -> Option<u64> {
-    current(&state)?.row_for_line(left, line.checked_sub(1)?)
+fn row_for_line(state: tauri::State<'_, AppState>, left: bool, line: u32) -> Option<Spot> {
+    let r = current(&state)?.row_for_line(left, line.checked_sub(1)?)?;
+    Some(spot(&state, r))
+}
+
+/// "Hide unchanged" on or off. Returns how many rows the screen has now.
+#[tauri::command]
+fn set_fold(state: tauri::State<'_, AppState>, on: bool) -> u64 {
+    state.fold_on.store(on, Ordering::SeqCst);
+    let Some(c) = current(&state) else { return 0 };
+    let f = make_folds(&state, &c);
+    let total = f.total();
+    if let Ok(mut s) = state.folds.lock() {
+        *s = f;
+    }
+    total
+}
+
+/// Open the fold shown at screen row `row`. Returns (rows gained, rows on the screen now).
+#[tauri::command]
+fn open_fold(state: tauri::State<'_, AppState>, row: u64) -> Option<(u64, u64)> {
+    let mut f = state.folds.lock().ok()?;
+    let At::Fold(i) = f.at(row) else { return None };
+    let (_, added) = f.open(i);
+    Some((added, f.total()))
 }
 
 #[tauri::command]
@@ -122,14 +208,17 @@ async fn find(
     from: Option<u64>,
     forward: bool,
     match_case: bool,
-) -> Result<Option<u64>, String> {
+) -> Result<Option<Spot>, String> {
     let c = current(&state).ok_or("Nothing to search")?;
+    let from = from.map(|s| folds(&state).real(s));
+    // (the lock above is let go at the end of that line, before the search runs)
     // Each search gets its own fresh stop switch (a new search stops the one before).
     let ctl = Arc::new(Control::default());
     replace_search(&state, ctl.clone());
-    tauri::async_runtime::spawn_blocking(move || c.find(&query, from, forward, match_case, &ctl))
+    let found = tauri::async_runtime::spawn_blocking(move || c.find(&query, from, forward, match_case, &ctl))
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())??;
+    Ok(found.map(|r| spot(&state, r)))
 }
 
 /// Live reload: has a compared file changed since? False when nothing is compared.
@@ -144,6 +233,9 @@ fn close_compare(state: tauri::State<'_, AppState>) {
     control(&state).cancel.store(true, Ordering::SeqCst);
     if let Ok(mut c) = state.current.lock() {
         *c = None;
+    }
+    if let Ok(mut f) = state.folds.lock() {
+        *f = Folds::default();
     }
 }
 
@@ -262,6 +354,8 @@ pub fn run() {
             nav,
             overview,
             files_changed,
+            set_fold,
+            open_fold,
             row_for_line,
             find,
             close_compare,

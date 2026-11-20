@@ -885,12 +885,15 @@ pub struct Cell {
     pub s: Vec<Seg>,
 }
 
-/// One screen row. k: 0 = same, 1 = changed, 2 = added, 3 = removed.
+/// One screen row. k: 0 = same, 1 = changed, 2 = added, 3 = removed, 4 = folded (see fold.rs).
 #[derive(Debug, Clone, Serialize)]
 pub struct Row {
     pub k: u8,
     pub l: Option<Cell>,
     pub r: Option<Cell>,
+    /// A folded row: how many unchanged rows it hides.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub f: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
@@ -1223,6 +1226,7 @@ impl Comparison {
                 (a, b) => (a.map(|t| plain(t, false)), b.map(|t| plain(t, false))),
             };
             out.push(Row {
+                f: None,
                 k,
                 l: l.zip(ls).map(|(n, s)| Cell { n: n + 1, s }),
                 r: r.zip(rs).map(|(n, s)| Cell { n: n + 1, s }),
@@ -1263,6 +1267,22 @@ impl Comparison {
         let o = self.ops.get(i)?;
         let (s, l) = start_len(o, left);
         (line >= s && line - s < l).then(|| o.row + (line - s) as u64)
+    }
+
+    /// The runs of unchanged rows, as (first row, rows), for folding (see fold.rs).
+    pub fn same_runs(&self) -> Vec<(u64, u64)> {
+        let mut out: Vec<(u64, u64)> = Vec::new();
+        for o in self.ops.iter().filter(|o| o.same) {
+            match out.last_mut() {
+                Some(last) if last.0 + last.1 == o.row => last.1 += o.rows(),
+                _ => out.push((o.row, o.rows())),
+            }
+        }
+        out
+    }
+
+    pub fn total_rows(&self) -> u64 {
+        self.total_rows
     }
 
     /// The first left and right line shown at or after screen row `row`.
@@ -1338,16 +1358,23 @@ impl Comparison {
     /// A small "map" of where the differences are, for the strip beside the scrollbar.
     /// 0 = nothing, 1 = changed, 2 = added, 3 = removed.
     pub fn overview(&self, buckets: u32) -> Vec<u8> {
+        self.overview_mapped(buckets, self.total_rows, &|r| r)
+    }
+
+    /// The same, for a screen whose rows are numbered differently (folds, see fold.rs):
+    /// `to_screen` turns a row into a screen row, and the screen has `total` rows.
+    pub fn overview_mapped(&self, buckets: u32, total: u64, to_screen: &dyn Fn(u64) -> u64) -> Vec<u8> {
         let n = buckets.clamp(1, 4000) as usize;
         let mut out = vec![0u8; n];
-        if self.total_rows == 0 {
+        if total == 0 {
             return out;
         }
-        let t = self.total_rows as u128;
+        let t = total as u128;
         for &oi in &self.blocks {
             let op = &self.ops[oi as usize];
-            let s = (op.row as u128 * n as u128 / t) as usize;
-            let e = (((op.row + op.rows()) as u128 * n as u128 + t - 1) / t) as usize;
+            let first = to_screen(op.row);
+            let s = (first as u128 * n as u128 / t) as usize;
+            let e = (((first + op.rows()) as u128 * n as u128 + t - 1) / t) as usize;
             let kind = if op.alen == 0 { 2 } else if op.blen == 0 { 3 } else { 1 };
             for b in s..e.max(s + 1).min(n) {
                 if out[b] == 0 || kind == 1 {

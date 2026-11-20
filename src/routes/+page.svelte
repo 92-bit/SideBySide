@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { open } from '@tauri-apps/plugin-dialog';
   import { getCurrentWebview } from '@tauri-apps/api/webview';
   import TitleBar from '#lib/components/TitleBar.svelte';
@@ -24,6 +24,9 @@
     compare,
     filesChanged as filesChangedOnDisk,
     find,
+    openFold,
+    setFold,
+    type Spot,
     fmtNum,
     fmtSize,
     progress,
@@ -52,7 +55,7 @@
     markUpdateChecked,
     updateCheckDue,
   } from '#lib/settings.ts';
-  import { applyCodeFont, prefs, setTidy, tidyKind, zoomStep } from '#lib/prefs.svelte.ts';
+  import { applyCodeFont, prefs, setFoldPref, setTidy, tidyKind, zoomStep } from '#lib/prefs.svelte.ts';
   import { changeLook, followSystem, loadLook, setLook, type Look } from '#lib/theme.ts';
 
   type SideName = 'left' | 'right';
@@ -385,10 +388,10 @@
     const t = view.getTop();
     const from = lastFound ?? (forward ? (t > 0 ? t - 1 : null) : t > 0 ? t : null);
     try {
-      const row = await find(query, from, forward, matchCase);
-      if (row === null) return false;
-      lastFound = row;
-      view.reveal(row);
+      const spot = await find(query, from, forward, matchCase);
+      if (spot === null) return false;
+      lastFound = spot.row;
+      await showSpot(spot);
       return true;
     } catch {
       return false;
@@ -396,10 +399,40 @@
   }
 
   async function doGoto(left: boolean, line: number): Promise<boolean> {
-    const row = await rowForLine(left, line);
-    if (row === null || !view) return false;
-    view.reveal(row);
+    const spot = await rowForLine(left, line);
+    if (spot === null || !view) return false;
+    await showSpot(spot);
     return true;
+  }
+
+  // ---- Hide unchanged (folds) ----
+  /** The screen gained `added` rows below screen row `at` (a fold was opened): move bookmarks along. */
+  function foldOpened(at: number, added: number, total: number, place: { top: number; x: number; atEnd: boolean } | null) {
+    bookmarks = bookmarks.map((b) => (b > at ? b + added : b));
+    keepPlace = place;
+    current = null; // the view starts again; F7 / F8 carry on from where it is
+    if (summary) summary = { ...summary, totalRows: total };
+  }
+  /** Show a found place; if it was hidden in a fold, that fold was opened first. */
+  async function showSpot(spot: Spot) {
+    if (spot.opened) {
+      foldOpened(spot.opened[0], spot.opened[1], spot.total, { top: Math.max(0, spot.row - 4), x: 0, atEnd: false });
+      await tick();
+    }
+    view?.reveal(spot.row);
+  }
+  async function openFoldAt(row: number) {
+    const res = await openFold(row);
+    if (res) foldOpened(row, res[0], res[1], view?.getPlace() ?? null);
+  }
+  async function toggleFold() {
+    setFoldPref(!prefs.fold);
+    const total = await setFold(prefs.fold);
+    if (!summary) return;
+    bookmarks = []; // the rows are numbered differently now
+    keepPlace = null;
+    current = null;
+    summary = { ...summary, totalRows: total };
   }
 
   // ---- Files sent to the app ----
@@ -479,6 +512,7 @@
     const unlistenFiles = listen('files-arrived', () => takeFiles().then(receiveFiles));
     reopen = loadReopen();
     unlistenFiles
+      .then(() => setFold(prefs.fold)) // before the first comparison
       .then(() => takeFiles())
       .then((files) => {
         // Files given at start always win; otherwise reopen the last comparison if that is switched on.
@@ -663,6 +697,7 @@
               onZoom={zoom}
               place={keepPlace}
               bind:bookmarks
+              onOpenFold={openFoldAt}
               onFilesChanged={() => (filesChanged = true)}
             />
           {/key}
@@ -787,6 +822,16 @@
       {:else}
         <span>Compared in {(summary.millis / 1000).toFixed(2)} s</span>
       {/if}
+      <button
+        type="button"
+        class="live fold"
+        class:on={prefs.fold}
+        aria-pressed={prefs.fold}
+        onclick={toggleFold}
+        title={prefs.fold ? 'Unchanged lines are hidden (a few stay around each difference). Click to show them all.' : 'Hide long runs of unchanged lines, so only the differences and a few lines around them show'}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4l5 5 5-5M7 20l5-5 5 5" /></svg>Hide unchanged
+      </button>
       <button
         type="button"
         class="live"
@@ -1787,6 +1832,20 @@
   }
   .live:active {
     transform: scale(0.97);
+  }
+  .live.fold svg {
+    width: 12px;
+    height: 12px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .live.fold.on {
+    color: var(--t-acc);
+    border-color: color-mix(in srgb, var(--t-acc) 45%, transparent);
+    background: var(--t-acc-bg);
   }
   .live .pulse {
     width: 6px;
