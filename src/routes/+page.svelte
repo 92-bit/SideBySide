@@ -894,7 +894,8 @@
       keysOpen = !keysOpen;
       return;
     }
-    if (!e.ctrlKey || e.altKey) {
+    // (on a Mac the ⌘ key does what Ctrl does on Windows)
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) {
       if (e.key === 'Escape' && findMode) findMode = null;
       return;
     }

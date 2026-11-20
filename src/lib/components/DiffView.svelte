@@ -465,7 +465,7 @@
       jumpMark(e.shiftKey ? -1 : 1);
       return;
     }
-    if (e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'b') {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'b') {
       e.preventDefault();
       toggleMarkHere();
       return;

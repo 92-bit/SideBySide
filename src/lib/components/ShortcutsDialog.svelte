@@ -5,6 +5,10 @@
 
   let { onClose }: { onClose: () => void } = $props();
 
+  // On a Mac the keys have their own names (⌘ instead of Ctrl, ⌥ instead of Alt).
+  const mac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent);
+  const keyName = (k: string) => (mac ? ({ Ctrl: '⌘', Alt: '⌥', Shift: '⇧' } as Record<string, string>)[k] ?? k : k);
+
   // Each shortcut: one or more ways to press it ("or"), each a list of keys pressed together.
   type Keys = string[][];
   const groups: { title: string; items: [Keys, string][] }[] = [
@@ -83,7 +87,7 @@
                 {#each ways as keys, w (w)}
                   {#if w > 0}<span class="or">{t("or")}</span>{/if}
                   <span class="combo">
-                    {#each keys as k, i (i)}{#if i > 0}<span class="plus" aria-hidden="true">+</span>{/if}<kbd>{k}</kbd>{/each}
+                    {#each keys as k, i (i)}{#if i > 0}<span class="plus" aria-hidden="true">+</span>{/if}<kbd>{keyName(k)}</kbd>{/each}
                   </span>
                 {/each}
               </dt>

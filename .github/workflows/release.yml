@@ -102,8 +102,36 @@ jobs:
           name: linux
           path: dist/
 
+  # The Mac version (one .dmg for both Intel and Apple-silicon Macs). It isn't signed by Apple, so
+  # the first time it opens, macOS asks to confirm: right-click the app, then Open.
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - name: Build the .dmg
+        run: npm run tauri build -- --target universal-apple-darwin --bundles dmg
+      - name: Collect files
+        run: |
+          mkdir dist
+          cp src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/
+
   release:
-    needs: [windows, linux]
+    needs: [windows, linux, macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -157,4 +185,5 @@ jobs:
             artifacts/windows/SideBySide.exe \
             artifacts/windows/SideBySide.exe.sig \
             artifacts/linux/* \
+            artifacts/macos/* \
             latest.json latest.json.sig
