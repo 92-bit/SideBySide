@@ -58,6 +58,11 @@ pub struct Options {
     /// Tidy up JSON and XML files first (one item per line), see tidy.rs.
     #[serde(default)]
     pub tidy: bool,
+    /// Compare only part of a file: (first line, last line), counting from 1.
+    #[serde(default)]
+    pub left_lines: Option<(u32, u32)>,
+    #[serde(default)]
+    pub right_lines: Option<(u32, u32)>,
     /// The rules, ready to use (made by `compare`).
     #[serde(skip)]
     rules: Vec<regex::bytes::Regex>,
@@ -132,6 +137,10 @@ pub struct Side {
     /// Very long lines (line number, byte position where the next line starts), so they
     /// can be jumped over instead of read through every time the screen needs a few lines.
     long: Vec<(u32, u64)>,
+    /// Only part of the file is compared: the lines before that part (added to the line
+    /// numbers shown), and the part's first and last line (counting from 1).
+    offset: u32,
+    part: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -141,6 +150,8 @@ pub struct SideInfo {
     pub path: String,
     pub size: u64,
     pub lines: u32,
+    /// Only part of the file is compared: its first and last line (counting from 1).
+    pub part: Option<(u32, u32)>,
 }
 
 fn file_name(path: &Path) -> String {
@@ -156,6 +167,7 @@ impl Side {
             path: self.path.to_string_lossy().into_owned(),
             size: self.size,
             lines: self.lines,
+            part: self.part,
         }
     }
 
@@ -437,6 +449,34 @@ pub fn remove_left_over_copies(running: impl Fn(u32) -> bool) {
     }
 }
 
+/// Write lines `first` to `last` (counting from 1) of a file to a copy in the Temp folder.
+fn part_copy(path: &Path, name: &str, (first, last): (u32, u32), ctl: &Control) -> Result<TempCopy, String> {
+    use std::io::{BufRead, Write};
+    let n = COPY_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let copy = TempCopy(std::env::temp_dir().join(format!("SideBySide-{}-{n}.txt", std::process::id())));
+    let read_err = |e: io::Error| format!("Could not read \"{name}\": {e}");
+    let mut input = BufReader::with_capacity(READ_BUF, File::open(path).map_err(read_err)?);
+    let file = File::create(&copy.0).map_err(|e| format!("Could not copy part of \"{name}\" (Temp folder: {e})"))?;
+    let mut out = std::io::BufWriter::with_capacity(READ_BUF, file);
+    let mut line = Vec::new();
+    let mut no: u32 = 1;
+    while no <= last {
+        if no % 65536 == 0 {
+            ctl.check()?;
+        }
+        line.clear();
+        if input.read_until(b'\n', &mut line).map_err(read_err)? == 0 {
+            break;
+        }
+        if no >= first {
+            out.write_all(&line).map_err(read_err)?;
+        }
+        no += 1;
+    }
+    out.flush().map_err(read_err)?;
+    Ok(copy)
+}
+
 /// Write a tidied copy of a JSON or XML file (one item per line) to the Temp folder.
 fn tidy_copy(path: &Path, name: &str, kind: crate::tidy::Kind, ctl: &Control) -> Result<TempCopy, String> {
     let n = COPY_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -521,7 +561,14 @@ fn convert(path: &Path, name: &str, format: &Format, ctl: &Control) -> Result<Te
 }
 
 /// Scan a file, first converting it to normal text if it's stored in another way.
-fn scan_file(path: &Path, opts: &Options, ctl: &Control, done_before: u64, total: u64) -> Result<Scanned, String> {
+fn scan_file(
+    path: &Path,
+    range: Option<(u32, u32)>,
+    opts: &Options,
+    ctl: &Control,
+    done_before: u64,
+    total: u64,
+) -> Result<Scanned, String> {
     use std::io::Read;
     let name = file_name(path);
     let mut head = Vec::new();
@@ -530,7 +577,9 @@ fn scan_file(path: &Path, opts: &Options, ctl: &Control, done_before: u64, total
         .map_err(|e| format!("Could not open \"{name}\": {e}"))?;
     let format = detect(&head);
     let tidy_kind = if opts.tidy { crate::tidy::kind_of(&name) } else { None };
-    if format == Format::Normal && tidy_kind.is_none() {
+    // A range that starts at the first line and goes past the end is the whole file.
+    let range = range.filter(|&(first, last)| first > 1 || last < u32::MAX).map(|(f, l)| (f.max(1), l.max(f.max(1))));
+    if format == Format::Normal && tidy_kind.is_none() && range.is_none() {
         return scan(path, &name, opts, ctl, done_before, total);
     }
     let meta = std::fs::metadata(path).map_err(|e| format!("Could not read \"{name}\": {e}"))?;
@@ -539,8 +588,16 @@ fn scan_file(path: &Path, opts: &Options, ctl: &Control, done_before: u64, total
         let from = copy.as_ref().map_or(path, |c| c.0.as_path());
         copy = Some(tidy_copy(from, &name, kind, ctl)?); // (the converted copy isn't needed after this)
     }
+    if let Some(r) = range {
+        let from = copy.as_ref().map_or(path, |c| c.0.as_path());
+        copy = Some(part_copy(from, &name, r, ctl)?);
+    }
     let copy = copy.expect("a copy was made above");
     let mut s = scan(&copy.0, &name, opts, ctl, done_before, total)?;
+    if let Some((first, _)) = range {
+        s.side.offset = first - 1;
+        s.side.part = Some((first, first - 1 + s.side.lines.max(1)));
+    }
     s.side.path = path.to_path_buf();
     s.side.size = meta.len();
     s.side.modified = meta.modified().ok();
@@ -695,6 +752,8 @@ fn scan(path: &Path, name: &str, opts: &Options, ctl: &Control, done_before: u64
         lines: line_no as u32,
         index,
         long,
+        offset: 0,
+        part: None,
     };
     Ok(Scanned { side, hashes, map })
 }
@@ -923,8 +982,8 @@ pub fn compare(left: &Path, right: &Path, opts: &Options, ctl: &Control) -> Resu
     let opts = &ready;
     let size_of = |p: &Path| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
     let total = size_of(left) + size_of(right);
-    let l = scan_file(left, opts, ctl, 0, total)?;
-    let r = scan_file(right, opts, ctl, l.side.size, total)?;
+    let l = scan_file(left, opts.left_lines, opts, ctl, 0, total)?;
+    let r = scan_file(right, opts.right_lines, opts, ctl, l.side.size, total)?;
 
     let mut ob = OpsBuilder::default();
     match (&l.map, &r.map) {
@@ -1315,7 +1374,9 @@ impl Comparison {
                     }
                 };
                 plan.push((kind, l, rr));
-                moved_to.push((op.mv != 0).then(|| op.mv + k));
+                // (the other side's line number, counted like the ones shown there)
+                let other = if l.is_some() { self.right.offset } else { self.left.offset };
+                moved_to.push((op.mv != 0).then(|| op.mv + k + other));
                 r += 1;
             }
             i += 1;
@@ -1358,8 +1419,8 @@ impl Comparison {
                 f: None,
                 m,
                 k,
-                l: l.zip(ls).map(|(n, s)| Cell { n: n + 1, s }),
-                r: r.zip(rs).map(|(n, s)| Cell { n: n + 1, s }),
+                l: l.zip(ls).map(|(n, s)| Cell { n: n + 1 + self.left.offset, s }),
+                r: r.zip(rs).map(|(n, s)| Cell { n: n + 1 + self.right.offset, s }),
             });
         }
         Ok(out)
@@ -1390,6 +1451,8 @@ impl Comparison {
 
     /// The screen row showing line `line` (0-based) of the left or right file.
     pub fn row_for_line(&self, left: bool, line: u32) -> Option<u64> {
+        // (counting from the start of the part that was compared)
+        let line = line.checked_sub(if left { self.left.offset } else { self.right.offset })?;
         let i = self.ops.partition_point(|o| {
             let (s, l) = start_len(o, left);
             s + l <= line
@@ -1694,6 +1757,25 @@ mod tests {
         assert!(l.iter().any(|s| s.h && s.t.contains("light")));
         assert!(l.iter().any(|s| !s.h && s.t.contains("theme")));
         assert_eq!(rows[1].k, 0);
+    }
+
+    #[test]
+    fn part_of_a_file_can_be_compared() {
+        let a: String = (1..=8).map(|i| format!("a{i}\n")).collect(); // a1 .. a8
+        let b = "x\nx\nx\nx\nx\nx\nx\nx\nx\na3\nA4\na5\nx\n"; // a3, A4, a5 are lines 10..12
+        let o = Options { left_lines: Some((3, 5)), right_lines: Some((10, 12)), ..Default::default() };
+        let c = cmp(&a, b, o);
+        let s = c.summary();
+        assert_eq!((s.left.lines, s.right.lines, s.blocks, s.changed), (3, 3, 1, 1));
+        assert_eq!((s.left.part, s.right.part), (Some((3, 5)), Some((10, 12))));
+        let rows = c.rows(0, 10).unwrap();
+        let nums: Vec<(u32, u32)> = rows.iter().map(|r| (r.l.as_ref().unwrap().n, r.r.as_ref().unwrap().n)).collect();
+        assert_eq!(nums, vec![(3, 10), (4, 11), (5, 12)]); // the real line numbers
+        assert_eq!(c.row_for_line(false, 10), Some(1)); // line 11 (0-based 10) is the 2nd row
+        assert_eq!(c.row_for_line(true, 0), None); // line 1 isn't in the part
+        // a range that covers the whole file is just the whole file
+        let o = Options { left_lines: Some((1, u32::MAX)), ..Default::default() };
+        assert_eq!(cmp(&a, &a, o).summary().left.part, None);
     }
 
     #[test]

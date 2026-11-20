@@ -12,6 +12,7 @@
   import UpdateDialog from '#lib/components/UpdateDialog.svelte';
   import ShortcutsDialog from '#lib/components/ShortcutsDialog.svelte';
   import RulesPanel from '#lib/components/RulesPanel.svelte';
+  import LinesPanel from '#lib/components/LinesPanel.svelte';
   import { activeRules, loadRules, saveRules, type RulesConfig } from '#lib/rules.ts';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { getVersion } from '@tauri-apps/api/app';
@@ -185,6 +186,8 @@
         ignoreBlankLines: used.blank,
         ignoreRules: used.rules ? activeRules(rulesCfg) : [],
         tidy: prefs.tidy,
+        leftLines: ranges.left,
+        rightLines: ranges.right,
       });
       if (id === runId) {
         keepPlace = quiet ? (view?.getPlace() ?? null) : (restore?.place ?? null);
@@ -290,8 +293,26 @@
   /** "12:04:31" */
   const clock = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
+  // ---- Compare only some lines ----
+  let ranges = $state<{ left: [number, number] | null; right: [number, number] | null }>({ left: null, right: null });
+  let linesOpen = $state<SideName | null>(null);
+  /** How many lines each whole file has (from the last time it was compared whole). */
+  let fullLines = $state({ left: 0, right: 0 });
+  $effect(() => {
+    if (summary && !summary.left.part) fullLines.left = summary.left.lines;
+    if (summary && !summary.right.part) fullLines.right = summary.right.lines;
+  });
+  function setRange(side: SideName, r: [number, number] | null) {
+    ranges[side] = r;
+    linesOpen = null;
+    run();
+  }
+  /** The last line number in a file as compared (its part, if only part of it). */
+  const lastLine = (info: { lines: number; part: [number, number] | null }) => (info.part ? info.part[1] : info.lines);
+
   function setPath(side: SideName, p: string) {
     paths[side] = p;
+    ranges[side] = null;
     run();
   }
 
@@ -306,11 +327,13 @@
 
   function swap() {
     paths = { left: paths.right, right: paths.left };
+    ranges = { left: ranges.right, right: ranges.left };
     run();
   }
 
   function closeAll() {
     runId++;
+    ranges = { left: null, right: null };
     busy = false;
     stopProgress();
     summary = null;
@@ -352,6 +375,7 @@
 
   function onWindowClick(e: MouseEvent) {
     if (rulesOpen && rulesWrap && !rulesWrap.contains(e.target as Node)) rulesOpen = false;
+    if (linesOpen && !(e.target as Element).closest?.('.lw')) linesOpen = null;
   }
 
   function toggle(k: 'spaces' | 'blank' | 'caseLetters') {
@@ -363,6 +387,7 @@
     recentOpen = false;
     pasteMode = false;
     paths = { left: r.left, right: r.right };
+    ranges = { left: null, right: null };
     run();
   }
 
@@ -370,6 +395,7 @@
     try {
       const [l, r] = await savePasted(a, b);
       paths = { left: l, right: r };
+      ranges = { left: null, right: null };
       run();
     } catch (e) {
       error = String(e);
@@ -635,8 +661,8 @@
           mode={findMode}
           bind:query
           bind:matchCase
-          maxLeft={summary.left.lines}
-          maxRight={summary.right.lines}
+          maxLeft={lastLine(summary.left)}
+          maxRight={lastLine(summary.right)}
           onFind={doFind}
           onGoto={doGoto}
           onClose={() => (findMode = null)}
@@ -674,6 +700,14 @@
                   <b><span class="sr">{side === 'left' ? 'Original: ' : 'New: '}</span>{pasted ? 'Pasted text' : info.name}</b>
                   <small>{pasted ? '' : `${folderOf(info.path)} · `}{fmtSize(info.size)} · {fmtNum(info.lines)} {info.lines === 1 ? 'line' : 'lines'}</small>
                 </div>
+                <span class="lw">
+                  <button type="button" class="change" class:on={!!info.part} aria-expanded={linesOpen === side} onclick={() => (linesOpen = linesOpen === side ? null : side)} title="Compare only some lines of this file">
+                    {info.part ? `Lines ${fmtNum(info.part[0])}–${fmtNum(info.part[1])}` : 'Lines…'}
+                  </button>
+                  {#if linesOpen === side}
+                    <LinesPanel {side} lines={fullLines[side] || info.lines} range={ranges[side]} onApply={(r) => setRange(side, r)} onClose={() => (linesOpen = null)} />
+                  {/if}
+                </span>
                 <button type="button" class="change" onclick={() => choose(side)}>Change…</button>
               </div>
             {/each}
@@ -823,7 +857,7 @@
       {:else if live && updatedAt}
         <span class="live-note">Updated {clock(updatedAt)}</span>
       {:else}
-        <span>Compared in {(summary.millis / 1000).toFixed(2)} s</span>
+        <span class="took">Compared in {(summary.millis / 1000).toFixed(2)} s</span>
       {/if}
       <span class="views" role="group" aria-label="Layout">
         <button type="button" aria-pressed={!prefs.inline} title="Side by side" aria-label="Side by side" onclick={() => setInline(false)}>
@@ -860,7 +894,7 @@
     <button type="button" class="zoom" onclick={() => zoom(0)} title="Text size (Ctrl + mouse wheel, Ctrl +/-). Click to reset.">
       {Math.round((prefs.fontSize / FONT_DEFAULT) * 100)}%
     </button>
-    <span>SideBySide {version ? `v${version}` : ''}{install?.runningInstalled ? '' : ' · portable'}</span>
+    <span class="ver">SideBySide {version ? `v${version}` : ''}{install?.runningInstalled ? '' : ' · portable'}</span>
   </footer>
 </div>
 
@@ -1307,6 +1341,15 @@
   }
   .change:hover {
     color: var(--t-strong);
+  }
+  .change.on {
+    color: var(--t-acc);
+    border-color: color-mix(in srgb, var(--t-acc) 45%, transparent);
+    background: var(--t-acc-bg);
+  }
+  .lw {
+    position: relative;
+    display: inline-flex;
   }
   .change:active {
     transform: scale(0.96);
@@ -1965,6 +2008,18 @@
     }
     .iglbl,
     .div {
+      display: none;
+    }
+  }
+  /* Narrow windows: the status bar keeps the switches and drops the less useful text. */
+  @media (max-width: 1060px) {
+    .status .ver {
+      display: none;
+    }
+  }
+  @media (max-width: 900px) {
+    .status .took,
+    .status .lg {
       display: none;
     }
   }

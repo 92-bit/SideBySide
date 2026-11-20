@@ -6,6 +6,8 @@ export interface SideInfo {
   path: string;
   size: number;
   lines: number;
+  /** Only part of the file is compared: its first and last line. */
+  part: [number, number] | null;
 }
 
 export interface Summary {
@@ -67,6 +69,9 @@ export interface Options {
   ignoreRules: string[];
   /** Tidy up JSON and XML files first (one item per line). */
   tidy: boolean;
+  /** Compare only some lines: [first, last], counting from 1. */
+  leftLines: [number, number] | null;
+  rightLines: [number, number] | null;
 }
 
 /** Returned as the error when Cancel was pressed, or a newer comparison replaced this one. */
