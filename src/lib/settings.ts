@@ -95,7 +95,7 @@ export function saveReopen(on: boolean) {
 export interface Session {
   left: string;
   right: string;
-  ignore: { spaces: boolean; blank: boolean; caseLetters: boolean };
+  ignore: { spaces: boolean; blank: boolean; caseLetters: boolean; rules?: boolean };
   place: { top: number; x: number; atEnd: boolean } | null;
   bookmarks: number[];
   /** File sizes when it was saved: bookmarks only come back if the files are unchanged. */

@@ -47,6 +47,8 @@ export interface Options {
   ignoreSpaces: boolean;
   ignoreCase: boolean;
   ignoreBlankLines: boolean;
+  /** Parts of lines that don't count, as regular expressions (see rules.ts). */
+  ignoreRules: string[];
 }
 
 /** Returned as the error when Cancel was pressed, or a newer comparison replaced this one. */

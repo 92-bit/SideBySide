@@ -3404,6 +3404,7 @@ dependencies = [
  "memchr",
  "minisign-verify",
  "mslnk",
+ "regex",
  "serde",
  "serde_json",
  "similar",

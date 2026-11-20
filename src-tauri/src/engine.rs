@@ -43,7 +43,7 @@ pub const CANCELLED: &str = "__cancelled__";
 /// Returned as the error when a file was changed on disk after it was compared.
 pub const CHANGED: &str = "__changed__";
 
-#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Options {
     #[serde(default)]
@@ -52,6 +52,29 @@ pub struct Options {
     pub ignore_case: bool,
     #[serde(default)]
     pub ignore_blank_lines: bool,
+    /// Ignore rules: parts of lines that don't count, as regular expressions (e.g. timestamps).
+    #[serde(default)]
+    pub ignore_rules: Vec<String>,
+    /// The rules, ready to use (made by `compare`).
+    #[serde(skip)]
+    rules: Vec<regex::bytes::Regex>,
+}
+
+/// Lines longer than this are compared without the ignore rules (they would be slow and use memory).
+const RULE_LINE_MAX: usize = 1 << 20;
+
+/// Makes the ignore rules ready to use, or says which one isn't valid.
+fn compile_rules(rules: &[String]) -> Result<Vec<regex::bytes::Regex>, String> {
+    rules
+        .iter()
+        .filter(|r| !r.trim().is_empty())
+        .map(|r| {
+            regex::bytes::RegexBuilder::new(r)
+                .size_limit(1 << 20)
+                .build()
+                .map_err(|_| format!("The ignore rule \"{r}\" isn't valid, so nothing was compared. Please check it."))
+        })
+        .collect()
 }
 
 /// Shared with the screen while a comparison runs: how far along it is, and the Cancel switch.
@@ -541,9 +564,20 @@ fn scan(path: &Path, name: &str, opts: &Options, ctl: &Control, done_before: u64
     let mut has_text = false;
     let mut pending_cr = false;
     let mut scratch = Vec::new();
+    // With ignore rules, each line is collected whole first (a rule needs to see the whole line).
+    let use_rules = !opts.rules.is_empty();
+    let mut line_buf: Vec<u8> = Vec::new();
+    let mut line_raw = false;
 
     macro_rules! end_line {
         () => {{
+            if use_rules {
+                if !line_raw {
+                    add_line(&mut hasher, &line_buf, opts, &mut scratch);
+                }
+                line_buf.clear();
+                line_raw = false;
+            }
             let h = hasher.digest();
             hasher.reset();
             in_line = false;
@@ -585,7 +619,19 @@ fn scan(path: &Path, name: &str, opts: &Options, ctl: &Control, done_before: u64
             if skip_blank && !has_text {
                 has_text = seg.iter().any(|&b| !is_space(b));
             }
-            feed(&mut hasher, seg, ends_line, &mut pending_cr, opts, &mut scratch);
+            if !use_rules {
+                feed(&mut hasher, seg, ends_line, &mut pending_cr, opts, &mut scratch);
+            } else if line_raw {
+                add(&mut hasher, seg, opts, &mut scratch);
+            } else {
+                line_buf.extend_from_slice(seg);
+                if line_buf.len() > RULE_LINE_MAX {
+                    // A huge line: compare it as it is.
+                    add(&mut hasher, &line_buf, opts, &mut scratch);
+                    line_buf.clear();
+                    line_raw = true;
+                }
+            }
             if ends_line {
                 let line_end = pos + end as u64;
                 if line_end - line_start > LONG_LINE {
@@ -645,6 +691,18 @@ fn feed(h: &mut Xxh3, seg: &[u8], ends_line: bool, pending_cr: &mut bool, o: &Op
         }
     }
     add(h, s, o, scratch);
+}
+
+/// A whole line, with the parts that match an ignore rule left out.
+fn add_line(h: &mut Xxh3, line: &[u8], o: &Options, scratch: &mut Vec<u8>) {
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    let mut cur: std::borrow::Cow<[u8]> = std::borrow::Cow::Borrowed(line);
+    for re in &o.rules {
+        if re.is_match(&cur) {
+            cur = std::borrow::Cow::Owned(re.replace_all(&cur, &b""[..]).into_owned());
+        }
+    }
+    add(h, &cur, o, scratch);
 }
 
 fn add(h: &mut Xxh3, s: &[u8], o: &Options, scratch: &mut Vec<u8>) {
@@ -766,6 +824,8 @@ pub struct Comparison {
     removed: u64,
     changed: u64,
     millis: u64,
+    /// The ignore rules used: their parts aren't marked as changed words either.
+    rules: Vec<regex::bytes::Regex>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -817,6 +877,9 @@ pub struct Hit {
 
 pub fn compare(left: &Path, right: &Path, opts: &Options, ctl: &Control) -> Result<Comparison, String> {
     let started = Instant::now();
+    let mut ready = opts.clone();
+    ready.rules = compile_rules(&opts.ignore_rules)?;
+    let opts = &ready;
     let size_of = |p: &Path| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
     let total = size_of(left) + size_of(right);
     let l = scan_file(left, opts, ctl, 0, total)?;
@@ -857,6 +920,7 @@ pub fn compare(left: &Path, right: &Path, opts: &Options, ctl: &Control) -> Resu
         removed,
         changed,
         millis: started.elapsed().as_millis() as u64,
+        rules: opts.rules.clone(),
     })
 }
 
@@ -1120,7 +1184,11 @@ impl Comparison {
             let rt = r.map(|n| text(&rtext, rfirst, n));
             let (ls, rs) = match (lt, rt) {
                 (Some(a), Some(b)) if k == 1 => {
-                    let (x, y) = word_diff(&a, &b);
+                    let (mut x, mut y) = word_diff(&a, &b);
+                    if !self.rules.is_empty() {
+                        x = unmark(x, &a, &self.rules);
+                        y = unmark(y, &b, &self.rules);
+                    }
                     (Some(x), Some(y))
                 }
                 // Added/removed lines are already colored as a whole row; no extra highlight.
@@ -1312,6 +1380,42 @@ fn word_diff(a: &str, b: &str) -> (Vec<Seg>, Vec<Seg>) {
     (l, r)
 }
 
+/// Parts of a line that match an ignore rule are not marked as changed.
+fn unmark(segs: Vec<Seg>, line: &str, rules: &[regex::bytes::Regex]) -> Vec<Seg> {
+    let mut quiet: Vec<(usize, usize)> = rules
+        .iter()
+        .flat_map(|re| re.find_iter(line.as_bytes()).map(|m| (m.start(), m.end())))
+        .collect();
+    if quiet.is_empty() {
+        return segs;
+    }
+    quiet.sort_unstable();
+    let is_quiet = |i: usize| quiet.iter().any(|&(a, b)| a <= i && i < b);
+    let mut out = Vec::with_capacity(segs.len());
+    let mut pos = 0;
+    for seg in segs {
+        if !seg.h {
+            pos += seg.t.len();
+            push_seg(&mut out, &seg.t, false);
+            continue;
+        }
+        // Split this marked piece where it enters or leaves an ignored part (on letter boundaries).
+        let mut start = 0;
+        let mut cur = is_quiet(pos);
+        for (i, _) in seg.t.char_indices().skip(1) {
+            let q = is_quiet(pos + i);
+            if q != cur {
+                push_seg(&mut out, &seg.t[start..i], !cur);
+                start = i;
+                cur = q;
+            }
+        }
+        push_seg(&mut out, &seg.t[start..], !cur);
+        pos += seg.t.len();
+    }
+    out
+}
+
 /// Longest stretch of changed text that is looked at letter by letter.
 const LETTER_DIFF_MAX: usize = 300;
 
@@ -1408,6 +1512,32 @@ mod tests {
     }
 
     #[test]
+    fn ignore_rules_leave_out_parts_of_lines() {
+        let a = "10:00:01 start\r\n10:00:02 load config\r\n10:00:03 done\r\n";
+        let b = "11:42:17 start\n11:42:18 load config\n11:42:19 failed\n";
+        assert_eq!(cmp(a, b, Options::default()).summary().blocks, 1);
+        assert_eq!(cmp(a, b, Options::default()).summary().changed, 3);
+        let o = Options { ignore_rules: vec![r"\d{1,2}:\d{2}:\d{2}".into()], ..Default::default() };
+        let s = cmp(a, b, o).summary();
+        assert_eq!((s.blocks, s.changed), (1, 1)); // only "done" → "failed" is left
+        // empty rules are skipped; rules work together with the other options
+        let o = Options { ignore_rules: vec![" ".into(), r"\d+".into()], ignore_case: true, ..Default::default() };
+        assert_eq!(cmp("ID 1 Ok\n", "id 22 OK\n", o).summary().blocks, 0);
+        // a rule that isn't valid is reported, not ignored
+        let o = Options { ignore_rules: vec!["(unclosed".into()], ..Default::default() };
+        let err = compare(&tmp(b"a\n"), &tmp(b"a\n"), &o, &Control::default()).err().unwrap();
+        assert!(err.contains("(unclosed"), "{err}");
+        // in a line that still differs, the ignored parts aren't marked
+        let o = Options { ignore_rules: vec![r"\d{1,2}:\d{2}:\d{2}".into()], ..Default::default() };
+        let c = cmp("10:00:01 job done
+", "11:42:17 job failed
+", o);
+        let rows = c.rows(0, 1).unwrap();
+        let marked: Vec<&str> = rows[0].r.as_ref().unwrap().s.iter().filter(|x| x.h).map(|x| x.t.as_str()).collect();
+        assert_eq!(marked, vec!["failed"]);
+    }
+
+    #[test]
     fn similar_words_mark_only_the_changed_letters() {
         let marked = |s: &[Seg]| s.iter().filter(|x| x.h).map(|x| x.t.as_str()).collect::<Vec<_>>().join("|");
         // one letter added inside a word
@@ -1463,7 +1593,7 @@ mod tests {
         assert!(cmp(a, b, Options::default()).summary().blocks >= 2);
 
         let o = Options { ignore_blank_lines: true, ..Default::default() };
-        let c = cmp(a, b, o);
+        let c = cmp(a, b, o.clone());
         let s = c.summary();
         assert_eq!((s.blocks, s.added, s.removed, s.changed), (1, 1, 0, 0));
         // every line of both files is still shown, in order

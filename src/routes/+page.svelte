@@ -11,6 +11,8 @@
   import InstallDialog from '#lib/components/InstallDialog.svelte';
   import UpdateDialog from '#lib/components/UpdateDialog.svelte';
   import ShortcutsDialog from '#lib/components/ShortcutsDialog.svelte';
+  import RulesPanel from '#lib/components/RulesPanel.svelte';
+  import { activeRules, loadRules, saveRules, type RulesConfig } from '#lib/rules.ts';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { getVersion } from '@tauri-apps/api/app';
   import { listen } from '@tauri-apps/api/event';
@@ -65,9 +67,9 @@
   let current = $state<Hit | null>(null);
   let dropSide = $state<SideName | null>(null);
   let stageEl = $state<HTMLDivElement>();
-  let ignore = $state({ spaces: false, blank: false, caseLetters: false });
+  let ignore = $state({ spaces: false, blank: false, caseLetters: false, rules: false });
   /** The ignore options of the result on screen, so Cancel can put the buttons back. */
-  let shownIgnore = { spaces: false, blank: false, caseLetters: false };
+  let shownIgnore = { spaces: false, blank: false, caseLetters: false, rules: false };
   let findBar = $state<ReturnType<typeof FindBar>>();
   /** A compared file was changed on disk since. */
   let filesChanged = $state(false);
@@ -178,6 +180,7 @@
         ignoreSpaces: used.spaces,
         ignoreCase: used.caseLetters,
         ignoreBlankLines: used.blank,
+        ignoreRules: used.rules ? activeRules(rulesCfg) : [],
       });
       if (id === runId) {
         keepPlace = quiet ? (view?.getPlace() ?? null) : (restore?.place ?? null);
@@ -251,14 +254,14 @@
     const last = loadSession();
     if (!last) return;
     paths = { left: last.left, right: last.right };
-    ignore = { ...last.ignore };
+    ignore = { rules: false, ...last.ignore };
     if (!(await run(false, last)) && error) {
       const gone = /^Could not open "(.+?)":.*(cannot find|not find|No such file)/i.exec(error);
       error = gone
         ? `The last comparison couldn't be reopened: "${gone[1]}" was moved or deleted.`
         : `The last comparison couldn't be reopened. ${error}`;
       paths = { left: null, right: null };
-      ignore = { spaces: false, blank: false, caseLetters: false };
+      ignore = { spaces: false, blank: false, caseLetters: false, rules: false };
     }
   }
 
@@ -319,6 +322,21 @@
     saveSession(null); // the start screen is where you left off now
     pasteMode = false;
     recentOpen = false;
+  }
+
+  // ---- Ignore rules (times, IDs...) ----
+  let rulesCfg = $state<RulesConfig>(loadRules());
+  let rulesOpen = $state(false);
+  let rulesWrap = $state<HTMLSpanElement>();
+  function applyRules(c: RulesConfig, on: boolean) {
+    rulesCfg = c;
+    saveRules(c);
+    rulesOpen = false;
+    ignore.rules = on;
+    run();
+  }
+  function onWindowClick(e: MouseEvent) {
+    if (rulesOpen && rulesWrap && !rulesWrap.contains(e.target as Node)) rulesOpen = false;
   }
 
   function toggle(k: 'spaces' | 'blank' | 'caseLetters') {
@@ -489,7 +507,7 @@
   });
 </script>
 
-<svelte:window onkeydown={onKey} />
+<svelte:window onkeydown={onKey} onclick={onWindowClick} />
 
 <div class="app">
   <TitleBar {look} onLook={pickLook} {onHelp}>
@@ -536,6 +554,14 @@
         <button type="button" class="chip" class:on={ignore.caseLetters} aria-pressed={ignore.caseLetters} onclick={() => toggle('caseLetters')} title="Ignore case: treat UPPER and lower case letters as the same">
           <span class="dot"></span>Case
         </button>
+        <span class="rw" bind:this={rulesWrap}>
+          <button type="button" class="chip" class:on={ignore.rules} aria-pressed={ignore.rules} aria-expanded={rulesOpen} onclick={() => (rulesOpen = !rulesOpen)} title="Ignore rules: leave out parts of lines, like times or IDs">
+            <span class="dot"></span>Rules
+          </button>
+          {#if rulesOpen}
+            <RulesPanel config={rulesCfg} on={ignore.rules} onApply={applyRules} onClose={() => (rulesOpen = false)} />
+          {/if}
+        </span>
       </span>
     {/snippet}
     {#snippet actions()}
@@ -709,7 +735,7 @@
       <span>Couldn't compare</span>
     {:else if summary}
       {#if summary.blocks === 0}
-        <span class="same">✓ Files are identical{ignore.spaces || ignore.caseLetters || ignore.blank ? ' (with ignore options)' : ''}</span>
+        <span class="same">✓ Files are identical{ignore.spaces || ignore.caseLetters || ignore.blank || ignore.rules ? ' (with ignore options)' : ''}</span>
       {:else}
         {@const parts = summary.changed + summary.added + summary.removed || 1}
         {#key summary}
@@ -970,6 +996,10 @@
   }
   .chip .short {
     display: none;
+  }
+  .rw {
+    position: relative;
+    display: inline-flex;
   }
   .iglbl {
     align-self: center;
@@ -1745,6 +1775,27 @@
   @media (prefers-reduced-motion: reduce) {
     .stack i {
       animation: none;
+    }
+  }
+  /* The smallest windows: everything a little tighter, so the window buttons always fit. */
+  @container bar (max-width: 840px) {
+    .chip {
+      padding: 0 5px;
+      font-size: 12px;
+    }
+    .ib.sq,
+    .ib:not(.sq) {
+      width: 26px;
+    }
+    .lb {
+      width: 24px;
+    }
+    .counter {
+      padding: 0 2px;
+    }
+    .iglbl,
+    .div {
+      display: none;
     }
   }
 </style>
