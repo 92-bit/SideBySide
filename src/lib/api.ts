@@ -110,6 +110,27 @@ export interface GitSetup {
 }
 /** apply = false: only look; true: change Git's settings (git config --global). */
 export const gitSetup = (apply: boolean) => invoke<GitSetup>('git_setup', { apply });
+// ---- Folders ----
+/** One file in a folder comparison. kind: 0 = the same, 1 = different, 2 = only in the first folder, 3 = only in the second. */
+export interface FolderEntry {
+  path: string;
+  kind: 0 | 1 | 2 | 3;
+  leftSize: number | null;
+  rightSize: number | null;
+}
+export interface FolderResult {
+  left: string;
+  right: string;
+  entries: FolderEntry[];
+  same: number;
+  different: number;
+  onlyLeft: number;
+  onlyRight: number;
+  millis: number;
+}
+export const compareFolders = (left: string, right: string) => invoke<FolderResult>('compare_folders', { left, right });
+export const isFolder = (path: string) => invoke<boolean>('is_folder', { path });
+
 // ---- Editing and merging ----
 /** Which files have unsaved changes, and whether Undo / Redo can do anything. */
 export interface EditState {

@@ -6,6 +6,7 @@ pub mod engine;
 pub mod edit;
 pub mod export;
 pub mod fold;
+pub mod folders;
 pub mod tidy;
 mod install;
 mod update;
@@ -196,6 +197,25 @@ async fn compare(
     *state.folds.lock().map_err(|_| "busy")? = f;
     *state.current.lock().map_err(|_| "busy")? = Some(Arc::new(result));
     Ok(summary)
+}
+
+/// Compare two folders (see folders.rs). Uses the same progress bar and Cancel as comparing files.
+#[tauri::command]
+async fn compare_folders(state: tauri::State<'_, AppState>, left: String, right: String) -> Result<folders::FolderResult, String> {
+    let ctl = Arc::new(Control::default());
+    if let Ok(mut c) = state.control.lock() {
+        c.cancel.store(true, Ordering::SeqCst);
+        *c = ctl.clone();
+    }
+    tauri::async_runtime::spawn_blocking(move || folders::compare(Path::new(&left), Path::new(&right), &ctl))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Is this a folder? (For dropped or picked paths.)
+#[tauri::command]
+fn is_folder(path: String) -> bool {
+    Path::new(&path).is_dir()
 }
 
 /// How far the running comparison is, from 0 to 1000.
@@ -699,6 +719,8 @@ pub fn run() {
             save_clipboard_text,
             fetch_url,
             copy_block,
+            compare_folders,
+            is_folder,
             edit_line,
             undo_redo,
             save_edits,

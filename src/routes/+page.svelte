@@ -17,6 +17,7 @@
   import LinesPanel from '#lib/components/LinesPanel.svelte';
   import GitDialog from '#lib/components/GitDialog.svelte';
   import UrlDialog from '#lib/components/UrlDialog.svelte';
+  import FolderView from '#lib/components/FolderView.svelte';
   import { activeRules, loadRules, saveRules, type RulesConfig } from '#lib/rules.ts';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { getVersion } from '@tauri-apps/api/app';
@@ -36,6 +37,10 @@
     makePatch,
     saveClipboardText,
     copyBlock,
+    compareFolders,
+    isFolder,
+    type FolderResult,
+    type FolderEntry,
     editLine,
     undoRedo,
     saveEdits,
@@ -286,6 +291,8 @@
     id: number;
     /** null: the start screen */
     session: Session | null;
+    /** A folder comparison (kept as it is: it's only a list). */
+    folders?: FolderResult | null;
   }
   let tabs = $state<Tab[]>([{ id: 1, session: null }]);
   let activeTab = $state(1);
@@ -304,17 +311,21 @@
     };
   }
   const nameOf = (p: string) => (isPasted(p) ? 'Pasted text' : fileName(p));
+  const folderPair = (f: FolderResult) => `${fileName(f.left)} ↔ ${fileName(f.right)} (folders)`;
   function tabTitle(t: Tab): string {
+    if (t.id === activeTab && folders && !summary) return folderPair(folders);
+    if (t.id !== activeTab && t.folders) return folderPair(t.folders);
     if (t.id === activeTab) {
       if (summary) return `${nameOf(summary.left.path)} ↔ ${nameOf(summary.right.path)}`;
       return pasteMode ? 'Paste text' : 'New comparison';
     }
     return t.session ? `${nameOf(t.session.left)} ↔ ${nameOf(t.session.right)}` : 'New comparison';
   }
-  async function showSession(s: Session | null) {
+  async function showSession(s: Session | null, f: FolderResult | null = null) {
     closeAll();
     pasteMode = false;
     recentOpen = false;
+    folders = f;
     if (!s) return;
     paths = { left: s.left, right: s.right };
     ignore = { rules: false, ...s.ignore };
@@ -324,14 +335,15 @@
   async function switchTab(id: number) {
     if (id === activeTab || !(await askToSave())) return;
     const cur = tabs.find((t) => t.id === activeTab);
-    if (cur) cur.session = captureSession();
+    if (cur) [cur.session, cur.folders] = [captureSession(), summary ? null : folders];
     activeTab = id;
-    await showSession(tabs.find((t) => t.id === id)?.session ?? null);
+    const next = tabs.find((t) => t.id === id);
+    await showSession(next?.session ?? null, next?.folders ?? null);
   }
   async function newTab() {
     if (!(await askToSave())) return;
     const cur = tabs.find((t) => t.id === activeTab);
-    if (cur) cur.session = captureSession();
+    if (cur) [cur.session, cur.folders] = [captureSession(), summary ? null : folders];
     const id = ++tabSeq;
     tabs.push({ id, session: null });
     activeTab = id;
@@ -342,6 +354,7 @@
     const i = tabs.findIndex((t) => t.id === id);
     if (tabs.length === 1) {
       tabs[0].session = null;
+      tabs[0].folders = null;
       await showSession(null);
       return;
     }
@@ -349,12 +362,61 @@
     if (id === activeTab) {
       const next = tabs[Math.min(i, tabs.length - 1)];
       activeTab = next.id;
-      await showSession(next.session);
+      await showSession(next.session, next.folders ?? null);
     }
   }
   function stepTab(d: 1 | -1) {
     const i = tabs.findIndex((t) => t.id === activeTab);
     switchTab(tabs[(i + d + tabs.length) % tabs.length].id);
+  }
+
+  // ---- Folders ----
+  let folders = $state<FolderResult | null>(null);
+  let folderBusy = $state(false);
+  async function runFolders(left: string, right: string) {
+    if (!(await askToSave())) return;
+    closeAll();
+    pasteMode = false;
+    recentOpen = false;
+    const id = ++runId;
+    busy = true;
+    folderBusy = true;
+    error = null;
+    startProgress();
+    try {
+      const r = await compareFolders(left, right);
+      if (id === runId) folders = r;
+    } catch (e) {
+      if (id === runId && String(e) !== CANCELLED) error = String(e);
+    } finally {
+      if (id === runId) {
+        busy = false;
+        folderBusy = false;
+        stopProgress();
+      }
+    }
+  }
+  async function chooseFolders() {
+    const a = await open({ directory: true, multiple: false, title: 'Choose the first (original) folder' });
+    if (typeof a !== 'string') return;
+    const b = await open({ directory: true, multiple: false, title: 'Choose the second (new) folder' });
+    if (typeof b !== 'string') return;
+    runFolders(a, b);
+  }
+  /** A file of a folder comparison: compare it side by side in a new tab. */
+  function openFolderFile(e: FolderEntry) {
+    if (!folders) return;
+    const sep = folders.left.includes('\\') ? '\\' : '/';
+    const join = (dir: string, rel: string) => dir.replace(/[\\/]+$/, '') + sep + rel.split('/').join(sep);
+    const [l, r] = [join(folders.left, e.path), join(folders.right, e.path)];
+    const cur = tabs.find((t) => t.id === activeTab);
+    if (cur) [cur.session, cur.folders] = [null, folders];
+    const id = ++tabSeq;
+    tabs.push({ id, session: null });
+    activeTab = id;
+    closeAll();
+    paths = { left: l, right: r };
+    run();
   }
 
   async function reopenLast() {
@@ -433,6 +495,7 @@
 
   function closeAll() {
     runId++;
+    folders = null;
     ranges = { left: null, right: null };
     busy = false;
     stopProgress();
@@ -686,6 +749,11 @@
     if (!(await askToSave())) return;
     pasteMode = false;
     recentOpen = false;
+    // Two folders: compare the folders.
+    if (files.length >= 2 && (await isFolder(files[0])) && (await isFolder(files[1]))) {
+      runFolders(files[0], files[1]);
+      return;
+    }
     if (files.length >= 2 && summary) {
       // A comparison is open: the new one gets its own tab.
       const cur = tabs.find((t) => t.id === activeTab);
@@ -808,9 +876,13 @@
         const side = sideAt(p.position.x);
         const dropped = [...p.paths];
         // (unsaved changes: ask first)
-        askToSave().then((go) => {
+        askToSave().then(async (go) => {
           if (!go) return;
           pasteMode = false;
+          if (dropped.length >= 2 && (await isFolder(dropped[0])) && (await isFolder(dropped[1]))) {
+            runFolders(dropped[0], dropped[1]);
+            return;
+          }
           if (dropped.length >= 2) {
             paths = { left: dropped[0], right: dropped[1] };
             run();
@@ -1028,6 +1100,8 @@
               onFilesChanged={() => (filesChanged = true)}
             />
           {/key}
+        {:else if folders}
+          <FolderView result={folders} onOpen={openFolderFile} />
         {:else if pasteMode}
           <PastePanel {error} onCompare={comparePasted} onBack={() => (pasteMode = false)} />
         {:else}
@@ -1067,6 +1141,7 @@
             <p class="orp rise" style:--i={2}>
               No files? <button type="button" class="link" onclick={() => (pasteMode = true)}>Paste text instead</button>
               · <button type="button" class="link" onclick={() => (urlOpen = true)} title="Ctrl+L">Open a web link</button>
+              · <button type="button" class="link" onclick={chooseFolders}>Compare two folders</button>
               {#if paths.left}
                 · <button type="button" class="link" onclick={compareClipboard} title="Ctrl+Shift+V">Compare with what you copied</button>
               {/if}
@@ -1096,7 +1171,7 @@
               </div>
               <span class="pbar" aria-hidden="true"><i style:transform="scaleX({pct / 1000})"></i></span>
               <span class="busytxt">
-                <span>{pct < 800 ? 'Reading both files…' : 'Matching lines…'}</span>
+                <span>{folderBusy ? 'Comparing the folders…' : pct < 800 ? 'Reading both files…' : 'Matching lines…'}</span>
                 <b>{Math.floor(pct / 10)}%</b>
               </span>
               <button type="button" class="cancel" onclick={() => cancel()}>Cancel</button>
@@ -1173,6 +1248,10 @@
         <span class="lg d">{fmtNum(summary.removed)} removed</span>
         {#if summary.moved}<span class="lg m">{fmtNum(summary.moved)} moved</span>{/if}
       {/if}
+    {:else if folders}
+      {@const changes = folders.different + folders.onlyLeft + folders.onlyRight}
+      <b>{changes === 0 ? '✓ The folders are the same' : `${fmtNum(changes)} ${changes === 1 ? 'file differs' : 'files differ'}`}</b>
+      <span>out of {fmtNum(folders.entries.length)} · compared in {(folders.millis / 1000).toFixed(2)} s</span>
     {:else}
       <span>Ready</span>
     {/if}
