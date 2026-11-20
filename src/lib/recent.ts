@@ -1,3 +1,4 @@
+import { t } from '#lib/i18n.svelte.ts';
 // The list of recent comparisons, remembered between launches.
 export interface Recent {
   left: string;
@@ -49,12 +50,12 @@ export const folderOf = (p: string) => p.slice(0, Math.max(0, p.length - fileNam
 
 export function timeAgo(at: number): string {
   const s = Math.round((Date.now() - at) / 1000);
-  if (s < 60) return 'just now';
+  if (s < 60) return t('just now');
   const m = Math.round(s / 60);
-  if (m < 60) return `${m} min ago`;
+  if (m < 60) return t('{n} min ago', { n: m });
   const h = Math.round(m / 60);
-  if (h < 24) return `${h} h ago`;
+  if (h < 24) return t('{n} h ago', { n: h });
   const d = Math.round(h / 24);
-  if (d < 7) return d === 1 ? 'yesterday' : `${d} days ago`;
+  if (d < 7) return d === 1 ? t('yesterday') : t('{n} days ago', { n: d });
   return new Date(at).toLocaleDateString();
 }

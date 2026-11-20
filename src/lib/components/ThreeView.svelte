@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '#lib/i18n.svelte.ts';
   // Three files: "A | original | B". Each row is lined up on the original's lines. Changes made only
   // in A or only in B are tinted in that column; a change made in both the same way is green in
   // both; a conflict (both changed the same lines differently) is red across all three.
@@ -93,7 +94,7 @@
 
   const colored = (t: string): { t: string; c: Tok }[] => colorLine(t, lang);
   const cur = (r: number) => current !== null && r >= current.row && r < current.row + current.rows;
-  const KIND = ['', 'Changed in A', 'Changed in B', 'Changed the same way in both', 'Conflict: A and B changed this differently'];
+  const KIND = $derived(['', t('Changed in A'), t('Changed in B'), t('Changed the same way in both'), t('Conflict: A and B changed this differently')]);
 
   onMount(() => {
     viewport.addEventListener('wheel', onWheel, { passive: false });
@@ -115,14 +116,14 @@
   <div class="heads">
     {#each [['A', summary.a], ['Original', summary.original], ['B', summary.b]] as const as [label, info] (label)}
       <div class="fh" class:mid={label === 'Original'}>
-        <span class="tag" class:o={label === 'Original'}>{label}</span>
+        <span class="tag" class:o={label === 'Original'}>{label === 'Original' ? t('Original') : label}</span>
         <b title={info.path}>{info.name}</b>
-        <small>{fmtNum(info.lines)} lines</small>
+        <small>{info.lines === 1 ? t('1 line') : t('{n} lines', { n: fmtNum(info.lines) })}</small>
       </div>
     {/each}
   </div>
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-  <div class="rows" bind:this={viewport} bind:clientHeight={height} tabindex="0" role="region" aria-label="Three-way comparison">
+  <div class="rows" bind:this={viewport} bind:clientHeight={height} tabindex="0" role="region" aria-label={t("Three-way comparison")}>
     {#each rows as row, i (rowsTop + i)}
       {@const r = rowsTop + i}
       <div class="row k{row.k}" class:cur={cur(r)} title={KIND[row.k] || undefined}>

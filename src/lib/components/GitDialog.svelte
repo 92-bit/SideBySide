@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, tHtml, safe } from '#lib/i18n.svelte.ts';
   // Help → Use with Git…: make "git difftool" open changes in SideBySide.
   import { onMount } from 'svelte';
   import { gitSetup, type GitSetup } from '#lib/api.ts';
@@ -40,39 +41,38 @@
 
 <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && onClose()}>
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="git-title" tabindex="-1" use:trapFocus={{ onEscape: onClose }}>
-    <h2 id="git-title">Use SideBySide with Git</h2>
+    <h2 id="git-title">{t("Use SideBySide with Git")}</h2>
     <p>
-      Git is a tool programmers use to keep track of changes to their files. After this setup, the command
-      <code>git difftool</code> shows each changed file in SideBySide, one after another.
+      {@html tHtml('Git is a tool programmers use to keep track of changes to their files. After this setup, the command {cmd} shows each changed file in SideBySide, one after another.', { cmd: '<code>git difftool</code>' })}
     </p>
     {#if info && !info.gitFound}
-      <p class="warn">Git doesn't seem to be installed on this computer, so there's nothing to set up.</p>
-      {#if info.problem}<p class="small">(Windows said: {info.problem})</p>{/if}
+      <p class="warn">{t("Git doesn't seem to be installed on this computer, so there's nothing to set up.")}</p>
+      {#if info.problem}<p class="small">{t('(Windows said: {why})', { why: info.problem })}</p>{/if}
     {:else if info}
-      <p class="small">It changes three of Git's own settings for your user account (nothing else). These are the commands:</p>
+      <p class="small">{t("It changes three of Git's own settings for your user account (nothing else). These are the commands:")}</p>
       <pre>{info.commands.join('\n')}</pre>
       {#if done}
-        <p class="ok">✓ Done. Try it: run <code>git difftool</code> in a folder that Git keeps track of.</p>
+        <p class="ok">{@html tHtml('✓ Done. Try it: run {cmd} in a folder that Git keeps track of.', { cmd: '<code>git difftool</code>' })}</p>
       {:else if info.current === 'sidebyside'}
-        <p class="ok">✓ Git already uses SideBySide.</p>
+        <p class="ok">{t("✓ Git already uses SideBySide.")}</p>
       {:else if info.current}
-        <p class="small">Git's compare tool is now <b>{info.current}</b>; this would change it to SideBySide.</p>
+        <p class="small">{@html tHtml("Git's compare tool is now {tool}; this would change it to SideBySide.", { tool: `<b>${safe(info.current)}</b>` })}</p>
       {/if}
-      <p class="small">Tip: install SideBySide first (the Install button), so these settings keep working if you move this copy.</p>
+      <p class="small">{t("Tip: install SideBySide first (the Install button), so these settings keep working if you move this copy.")}</p>
     {:else if !error}
-      <p class="small">Looking for Git…</p>
+      <p class="small">{t("Looking for Git…")}</p>
     {/if}
     {#if error}
       <p class="warn">{error}</p>
     {/if}
     <div class="actions">
       {#if info?.gitFound}
-        <button type="button" class="ghost" onclick={copy}>{copied ? 'Copied' : 'Copy the commands'}</button>
+        <button type="button" class="ghost" onclick={copy}>{copied ? t('Copied') : t('Copy the commands')}</button>
       {/if}
       <span class="grow"></span>
-      <button type="button" class="ghost" onclick={onClose}>Close</button>
+      <button type="button" class="ghost" onclick={onClose}>{t("Close")}</button>
       {#if info?.gitFound && !done}
-        <button type="button" class="primary" disabled={busy} onclick={apply}>{busy ? 'Setting up…' : 'Set it up for me'}</button>
+        <button type="button" class="primary" disabled={busy} onclick={apply}>{busy ? t('Setting up…') : t('Set it up for me')}</button>
       {/if}
     </div>
   </div>
@@ -142,7 +142,7 @@
   .warn {
     color: var(--t-del-s);
   }
-  code {
+  .dialog :global(code) {
     font: 12px var(--font-code);
     padding: 1px 5px;
     border-radius: 5px;

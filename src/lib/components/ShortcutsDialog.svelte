@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '#lib/i18n.svelte.ts';
   // Every keyboard shortcut in one small window (F1, or Help → Keyboard shortcuts).
   import { trapFocus } from '#lib/trapFocus.ts';
 
@@ -71,29 +72,29 @@
 
 <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && onClose()}>
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="keys-title" tabindex="-1" use:trapFocus={{ onEscape: onClose }}>
-    <h2 id="keys-title">Keyboard shortcuts</h2>
+    <h2 id="keys-title">{t("Keyboard shortcuts")}</h2>
     <div class="groups">
       {#each groups as g (g.title)}
         <section>
-          <h3>{g.title}</h3>
+          <h3>{t(g.title)}</h3>
           <dl>
             {#each g.items as [ways, what] (what)}
               <dt>
                 {#each ways as keys, w (w)}
-                  {#if w > 0}<span class="or">or</span>{/if}
+                  {#if w > 0}<span class="or">{t("or")}</span>{/if}
                   <span class="combo">
                     {#each keys as k, i (i)}{#if i > 0}<span class="plus" aria-hidden="true">+</span>{/if}<kbd>{k}</kbd>{/each}
                   </span>
                 {/each}
               </dt>
-              <dd>{what}</dd>
+              <dd>{t(what)}</dd>
             {/each}
           </dl>
         </section>
       {/each}
     </div>
     <div class="actions">
-      <button type="button" class="ghost" onclick={onClose}>Close</button>
+      <button type="button" class="ghost" onclick={onClose}>{t("Close")}</button>
     </div>
   </div>
 </div>

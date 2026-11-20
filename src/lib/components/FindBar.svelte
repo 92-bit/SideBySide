@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '#lib/i18n.svelte.ts';
   // The bar for "Find" (Ctrl+F) and "Go to line" (Ctrl+G).
   let {
     mode,
@@ -46,7 +47,7 @@
     status = '';
     const ok = await onFind(forward);
     searching = false;
-    status = ok ? '' : 'No matches';
+    status = ok ? '' : t('No matches');
   }
 
   async function doGoto() {
@@ -55,10 +56,10 @@
     const n = /^\d+$/.test(digits) ? Number(digits) : NaN;
     const max = side === 'left' ? maxLeft : maxRight;
     if (!(n >= 1 && n <= max)) {
-      status = `Type a number from 1 to ${max.toLocaleString('en-US')}`;
+      status = t('Type a number from 1 to {max}', { max: max.toLocaleString() });
       return;
     }
-    status = (await onGoto(side === 'left', n)) ? '' : 'Line not found';
+    status = (await onGoto(side === 'left', n)) ? '' : t('Line not found');
   }
 
   function onKey(e: KeyboardEvent) {
@@ -76,23 +77,23 @@
 <div class="bar" role="search">
   {#if mode === 'find'}
     <svg class="ico" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="M15.5 15.5 21 21" /></svg>
-    <input bind:this={input} bind:value={query} onkeydown={onKey} oninput={() => (status = '')} placeholder="Find in both files" aria-label="Find" spellcheck="false" />
-    <button type="button" class="tg" class:on={matchCase} aria-pressed={matchCase} onclick={() => (matchCase = !matchCase)} title="Match UPPER and lower case exactly">Aa</button>
-    <button type="button" onclick={() => doFind(false)} disabled={!query || searching} title="Previous match (Shift+Enter)" aria-label="Previous match">↑</button>
-    <button type="button" onclick={() => doFind(true)} disabled={!query || searching} title="Next match (Enter)" aria-label="Next match">↓</button>
+    <input bind:this={input} bind:value={query} onkeydown={onKey} oninput={() => (status = '')} placeholder={t("Find in both files")} aria-label={t("Find")} spellcheck="false" />
+    <button type="button" class="tg" class:on={matchCase} aria-pressed={matchCase} onclick={() => (matchCase = !matchCase)} title={t("Match UPPER and lower case exactly")}>{t("Aa")}</button>
+    <button type="button" onclick={() => doFind(false)} disabled={!query || searching} title={t("Previous match (Shift+Enter)")} aria-label={t("Previous match")}>↑</button>
+    <button type="button" onclick={() => doFind(true)} disabled={!query || searching} title={t("Next match (Enter)")} aria-label={t("Next match")}>↓</button>
   {:else}
-    <span class="lbl">Go to line</span>
-    <input bind:this={input} bind:value={line} onkeydown={onKey} oninput={() => (status = '')} class="num" inputmode="numeric" placeholder="Number" aria-label="Line number" />
-    <span class="lbl">in the</span>
-    <select bind:value={side} aria-label="Which file">
-      <option value="left">Original file</option>
-      <option value="right">New file</option>
+    <span class="lbl">{t("Go to line")}</span>
+    <input bind:this={input} bind:value={line} onkeydown={onKey} oninput={() => (status = '')} class="num" inputmode="numeric" placeholder={t("Number")} aria-label={t("Line number")} />
+    <span class="lbl">{t("in the")}</span>
+    <select bind:value={side} aria-label={t("Which file")}>
+      <option value="left">{t("Original file")}</option>
+      <option value="right">{t("New file")}</option>
     </select>
-    <button type="button" onclick={doGoto}>Go</button>
+    <button type="button" onclick={doGoto}>{t("Go")}</button>
   {/if}
-  <span class="status" aria-live="polite">{searching ? 'Searching…' : status}</span>
+  <span class="status" aria-live="polite">{searching ? t('Searching…') : status}</span>
   <span class="grow"></span>
-  <button type="button" class="x" onclick={onClose} aria-label="Close" title="Close (Esc)">×</button>
+  <button type="button" class="x" onclick={onClose} aria-label={t("Close")} title={t("Close (Esc)")}>×</button>
 </div>
 
 <style>

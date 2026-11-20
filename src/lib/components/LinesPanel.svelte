@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '#lib/i18n.svelte.ts';
   // "Lines…" on a file card: compare only some lines of that file (from … to …).
   import { trapFocus } from '#lib/trapFocus.ts';
   import { fmtNum } from '#lib/api.ts';
@@ -31,22 +32,24 @@
   }
 </script>
 
-<form class="panel" class:right={side === 'right'} aria-label="Compare only some lines" tabindex="-1" use:trapFocus={{ onEscape: onClose }} onsubmit={apply}>
-  <h3>Compare only some lines</h3>
-  <p class="hint">Of the {side === 'left' ? 'original' : 'new'} file{lines ? ` (${fmtNum(lines)} lines)` : ''}. The line numbers stay the same as in the file.</p>
+<form class="panel" class:right={side === 'right'} aria-label={t("Compare only some lines")} tabindex="-1" use:trapFocus={{ onEscape: onClose }} onsubmit={apply}>
+  <h3>{t("Compare only some lines")}</h3>
+  <p class="hint">{lines
+      ? t(side === 'left' ? 'Of the original file ({n} lines). The line numbers stay the same as in the file.' : 'Of the new file ({n} lines). The line numbers stay the same as in the file.', { n: fmtNum(lines) })
+      : t(side === 'left' ? 'Of the original file. The line numbers stay the same as in the file.' : 'Of the new file. The line numbers stay the same as in the file.')}</p>
   <div class="fields">
-    <label>From line <input type="number" min="1" step="1" bind:value={from} /></label>
-    <label>to <input type="number" min="1" step="1" bind:value={to} /></label>
+    <label>{t("From line")} <input type="number" min="1" step="1" bind:value={from} /></label>
+    <label>{t("to")} <input type="number" min="1" step="1" bind:value={to} /></label>
   </div>
   {#if !valid}
-    <p class="bad">"From" must be 1 or more, and "to" can't be before it.</p>
+    <p class="bad">{t("\"From\" must be 1 or more, and \"to\" can't be before it.")}</p>
   {/if}
   <div class="actions">
     {#if range}
-      <button type="button" class="ghost" onclick={() => onApply(null)}>Whole file</button>
+      <button type="button" class="ghost" onclick={() => onApply(null)}>{t("Whole file")}</button>
     {/if}
     <span class="grow"></span>
-    <button type="submit" class="primary" disabled={!valid}>Compare these lines</button>
+    <button type="submit" class="primary" disabled={!valid}>{t("Compare these lines")}</button>
   </div>
 </form>
 

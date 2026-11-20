@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t, tHtml } from '#lib/i18n.svelte.ts';
   // Asks before installing, then installs and reopens SideBySide from its new home.
   import { installApp, openInstalled, type InstallInfo } from '#lib/api.ts';
   import { trapFocus } from '#lib/trapFocus.ts';
@@ -30,30 +31,29 @@
 <div class="backdrop" role="presentation">
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="install-title" tabindex="-1" use:trapFocus={{ onEscape }}>
     {#if step === 'done'}
-      <h2 id="install-title">✓ SideBySide is installed</h2>
-      <p>You'll find it in your <b>Start Menu</b>. This window will now close and SideBySide will open from its new home.</p>
-      <p class="note">You can delete the file you downloaded — it's no longer needed.</p>
+      <h2 id="install-title">{t("✓ SideBySide is installed")}</h2>
+      <p>{@html tHtml("You'll find it in your {menu}. This window will now close and SideBySide will open from its new home.", { menu: `<b>${t('Start Menu')}</b>` })}</p>
+      <p class="note">{t("You can delete the file you downloaded — it's no longer needed.")}</p>
       <div class="actions">
         <span class="grow"></span>
-        <button type="button" class="primary" onclick={() => openInstalled()}>Open installed SideBySide</button>
+        <button type="button" class="primary" onclick={() => openInstalled()}>{t("Open installed SideBySide")}</button>
       </div>
     {:else}
-      <h2 id="install-title">{info.installed ? 'Update the installed SideBySide?' : 'Install SideBySide?'}</h2>
+      <h2 id="install-title">{info.installed ? t('Update the installed SideBySide?') : t('Install SideBySide?')}</h2>
       <p>
-        SideBySide works fine without installing. Installing just makes it easier to find. It's installed for you only, so no
-        administrator password is needed.
+        {t("SideBySide works fine without installing. Installing just makes it easier to find. It's installed for you only, so no administrator password is needed.")}
       </p>
       <ul class="facts">
-        <li>Adds SideBySide to your <b>Start Menu</b></li>
-        <li>Adds it to <b>Settings → Apps</b>, so you can uninstall it any time</li>
+        <li>{@html tHtml('Adds SideBySide to your {menu}', { menu: `<b>${t('Start Menu')}</b>` })}</li>
+        <li>{@html tHtml('Adds it to {apps}, so you can uninstall it any time', { apps: `<b>${t('Settings → Apps')}</b>` })}</li>
       </ul>
       <label class="opt">
         <input type="checkbox" bind:checked={contextMenu} />
-        <span>Add <b>"Compare with SideBySide"</b> when you right-click a file</span>
+        <span>{@html tHtml('Add {entry} when you right-click a file', { entry: `<b>${t('"Compare with SideBySide"')}</b>` })}</span>
       </label>
       <label class="opt">
         <input type="checkbox" bind:checked={desktop} />
-        <span>Put a shortcut on the desktop</span>
+        <span>{t("Put a shortcut on the desktop")}</span>
       </label>
       {#if error}
         <p class="error" role="alert">{error}</p>
@@ -61,9 +61,9 @@
       <div class="actions">
         <span class="path" title={info.installPath}>{info.installPath}</span>
         <span class="grow"></span>
-        <button type="button" class="ghost" onclick={onClose} disabled={step === 'working'}>Not now</button>
+        <button type="button" class="ghost" onclick={onClose} disabled={step === 'working'}>{t("Not now")}</button>
         <button type="button" class="primary" onclick={install} disabled={step === 'working'}>
-          {step === 'working' ? 'Installing…' : info.installed ? 'Update' : 'Install'}
+          {step === 'working' ? t('Installing…') : info.installed ? t('Update') : t('Install')}
         </button>
       </div>
     {/if}

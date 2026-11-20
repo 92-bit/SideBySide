@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '#lib/i18n.svelte.ts';
   // Two pictures: a slider to wipe between them, side by side, or the changed pixels in red.
   import { fileName } from '#lib/recent.ts';
   import { fmtNum, fmtSize, imageData } from '#lib/api.ts';
@@ -108,32 +109,32 @@
 <section class="images">
   <header>
     <div class="side">
-      <span class="tag old">OLD</span><b title={left}>{fileName(left)}</b>
+      <span class="tag old">{t("OLD")}</span><b title={left}>{fileName(left)}</b>
       <small>{sizes ? dims(sizes.a) : ''}{bytes[0] ? ` · ${fmtSize(bytes[0])}` : ''}</small>
     </div>
-    <div class="modes" role="group" aria-label="How to compare">
-      <button type="button" aria-pressed={mode === 'slider'} onclick={() => (mode = 'slider')}>Slider</button>
-      <button type="button" aria-pressed={mode === 'side'} onclick={() => (mode = 'side')}>Side by side</button>
-      <button type="button" aria-pressed={mode === 'diff'} onclick={() => (mode = 'diff')}>Difference</button>
+    <div class="modes" role="group" aria-label={t("How to compare")}>
+      <button type="button" aria-pressed={mode === 'slider'} onclick={() => (mode = 'slider')}>{t("Slider")}</button>
+      <button type="button" aria-pressed={mode === 'side'} onclick={() => (mode = 'side')}>{t("Side by side")}</button>
+      <button type="button" aria-pressed={mode === 'diff'} onclick={() => (mode = 'diff')}>{t("Difference")}</button>
     </div>
     <div class="side right">
       <small>{sizes ? dims(sizes.b) : ''}{bytes[1] ? ` · ${fmtSize(bytes[1])}` : ''}</small>
-      <b title={right}>{fileName(right)}</b><span class="tag new">NEW</span>
+      <b title={right}>{fileName(right)}</b><span class="tag new">{t("NEW")}</span>
     </div>
   </header>
 
   {#if error}
     <p class="msg bad">{error}</p>
   {:else if !srcA || !srcB}
-    <p class="msg">Opening the pictures…</p>
+    <p class="msg">{t("Opening the pictures…")}</p>
   {:else if mode === 'side'}
     <div class="pair">
-      <div class="frame checker"><img src={srcA} alt="Original" /></div>
-      <div class="frame checker"><img src={srcB} alt="New version" /></div>
+      <div class="frame checker"><img src={srcA} alt={t("Original")} /></div>
+      <div class="frame checker"><img src={srcB} alt={t("New version")} /></div>
     </div>
   {:else if mode === 'diff'}
     <div class="frame big checker">
-      {#if diffUrl}<img src={diffUrl} alt="Changed pixels in red" />{:else}<p class="msg">Finding the changed pixels…</p>{/if}
+      {#if diffUrl}<img src={diffUrl} alt={t("Changed pixels in red")} />{:else}<p class="msg">{t("Finding the changed pixels…")}</p>{/if}
     </div>
   {:else}
     <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -142,7 +143,7 @@
       bind:this={stage}
       role="slider"
       tabindex="0"
-      aria-label="Drag to compare: left shows the original, right the new version"
+      aria-label={t("Drag to compare: left shows the original, right the new version")}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(split)}
@@ -151,8 +152,8 @@
       onpointerup={up}
       onkeydown={key}
     >
-      <img src={srcB} alt="New version" />
-      <img src={srcA} alt="Original" class="top" style:clip-path="inset(0 {100 - split}% 0 0)" />
+      <img src={srcB} alt={t("New version")} />
+      <img src={srcA} alt={t("Original")} class="top" style:clip-path="inset(0 {100 - split}% 0 0)" />
       <div class="handle" style:left="{split}%"><span>⟷</span></div>
     </div>
   {/if}
@@ -160,15 +161,15 @@
   <footer>
     {#if changed !== null}
       {#if changed === 0}
-        <b class="same">✓ The pictures are the same, pixel for pixel.</b>
+        <b class="same">{t("✓ The pictures are the same, pixel for pixel.")}</b>
       {:else}
-        <b>{changed < 0.0001 ? 'Less than 0.01%' : `${(changed * 100).toFixed(changed < 0.01 ? 2 : 1)}%`} of the pixels differ.</b>
+        <b>{t('{share} of the pixels differ.', { share: changed < 0.0001 ? t('Less than 0.01%') : `${(changed * 100).toFixed(changed < 0.01 ? 2 : 1)}%` })}</b>
       {/if}
       {#if sizes && (sizes.a[0] !== sizes.b[0] || sizes.a[1] !== sizes.b[1])}
-        <span>The sizes differ ({dims(sizes.a)} and {dims(sizes.b)}).</span>
+        <span>{t('The sizes differ ({a} and {b}).', { a: dims(sizes.a), b: dims(sizes.b) })}</span>
       {/if}
     {/if}
-    {#if mode === 'slider'}<span class="hint">Drag across the picture (or use ← →) to move between the two.</span>{/if}
+    {#if mode === 'slider'}<span class="hint">{t("Drag across the picture (or use ← →) to move between the two.")}</span>{/if}
   </footer>
 </section>
 

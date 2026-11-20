@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '#lib/i18n.svelte.ts';
   // The "Rules" panel under the Ignore chips: which parts of lines don't count (times, IDs...).
   import { PRESETS, type RulesConfig } from '#lib/rules.ts';
   import { trapFocus } from '#lib/trapFocus.ts';
@@ -28,31 +29,31 @@
   const nothing = $derived(!picked.length && !custom.trim());
 </script>
 
-<div class="panel" role="dialog" aria-label="Ignore rules" tabindex="-1" use:trapFocus={{ onEscape: onClose }}>
-  <h3>Ignore parts of lines</h3>
-  <p class="hint">Lines that only differ in these parts count as the same. Handy for logs, where every line starts with a time.</p>
+<div class="panel" role="dialog" aria-label={t("Ignore rules")} tabindex="-1" use:trapFocus={{ onEscape: onClose }}>
+  <h3>{t("Ignore parts of lines")}</h3>
+  <p class="hint">{t("Lines that only differ in these parts count as the same. Handy for logs, where every line starts with a time.")}</p>
   <ul>
     {#each PRESETS as p (p.id)}
       <li>
         <label>
           <input type="checkbox" checked={picked.includes(p.id)} onchange={() => flip(p.id)} />
-          <span class="name">{p.name}</span>
+          <span class="name">{t(p.name)}</span>
           <code>{p.example}</code>
         </label>
       </li>
     {/each}
   </ul>
   <label class="own">
-    <span>Your own rules <small>(one per line, as a regular expression)</small></span>
+    <span>{t("Your own rules")} <small>{t("(one per line, as a regular expression)")}</small></span>
     <textarea bind:value={custom} rows="3" spellcheck="false" placeholder={'e.g.  request \\d+\n      session=[a-z0-9]+'}></textarea>
   </label>
   <div class="actions">
     {#if on}
-      <button type="button" class="ghost" onclick={() => onApply({ presets: picked, custom }, false)}>Stop ignoring</button>
+      <button type="button" class="ghost" onclick={() => onApply({ presets: picked, custom }, false)}>{t("Stop ignoring")}</button>
     {/if}
     <span class="grow"></span>
     <button type="button" class="primary" disabled={nothing} onclick={() => onApply({ presets: picked, custom }, true)}>
-      Compare with these rules
+      {t("Compare with these rules")}
     </button>
   </div>
 </div>

@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { t } from '#lib/i18n.svelte.ts';
   import { onMount, tick } from 'svelte';
+  import { tHtml } from '#lib/i18n.svelte.ts';
   import { open, save } from '@tauri-apps/plugin-dialog';
   import { readText } from '@tauri-apps/plugin-clipboard-manager';
   import { getCurrentWebview } from '@tauri-apps/api/webview';
@@ -333,22 +335,22 @@
       ranges: { left: ranges.left, right: ranges.right },
     };
   }
-  const nameOf = (p: string) => (isPasted(p) ? 'Pasted text' : fileName(p));
-  const folderPair = (f: FolderResult) => `${fileName(f.left)} ↔ ${fileName(f.right)} (folders)`;
+  const nameOf = (p: string) => (isPasted(p) ? t('Pasted text') : fileName(p));
+  const folderPair = (f: FolderResult) => t('{a} ↔ {b} (folders)', { a: fileName(f.left), b: fileName(f.right) });
   const threeTitle = (p: [string, string, string]) => `${fileName(p[1])} | ${fileName(p[0])} | ${fileName(p[2])}`;
-  const imagePair = (p: { left: string; right: string }) => `${fileName(p.left)} ↔ ${fileName(p.right)} (pictures)`;
-  function tabTitle(t: Tab): string {
-    if (t.id === activeTab && images) return imagePair(images);
-    if (t.id !== activeTab && t.images) return imagePair(t.images);
-    if (t.id === activeTab && threePaths) return threeTitle(threePaths);
-    if (t.id !== activeTab && t.three) return threeTitle(t.three);
-    if (t.id === activeTab && folders && !summary) return folderPair(folders);
-    if (t.id !== activeTab && t.folders) return folderPair(t.folders);
-    if (t.id === activeTab) {
+  const imagePair = (p: { left: string; right: string }) => t('{a} ↔ {b} (pictures)', { a: fileName(p.left), b: fileName(p.right) });
+  function tabTitle(tb: Tab): string {
+    if (tb.id === activeTab && images) return imagePair(images);
+    if (tb.id !== activeTab && tb.images) return imagePair(tb.images);
+    if (tb.id === activeTab && threePaths) return threeTitle(threePaths);
+    if (tb.id !== activeTab && tb.three) return threeTitle(tb.three);
+    if (tb.id === activeTab && folders && !summary) return folderPair(folders);
+    if (tb.id !== activeTab && tb.folders) return folderPair(tb.folders);
+    if (tb.id === activeTab) {
       if (summary) return `${nameOf(summary.left.path)} ↔ ${nameOf(summary.right.path)}`;
-      return pasteMode ? 'Paste text' : 'New comparison';
+      return pasteMode ? t('Paste text') : t('New comparison');
     }
-    return t.session ? `${nameOf(t.session.left)} ↔ ${nameOf(t.session.right)}` : 'New comparison';
+    return tb.session ? `${nameOf(tb.session.left)} ↔ ${nameOf(tb.session.right)}` : t('New comparison');
   }
   async function showSession(
     s: Session | null,
@@ -455,11 +457,11 @@
       const p = await open({ multiple: false, directory: false, title });
       return typeof p === 'string' ? p : null;
     };
-    const o = await pick('1 of 3: choose the original file');
+    const o = await pick(t('1 of 3: choose the original file'));
     if (!o) return;
-    const a = await pick('2 of 3: choose the first changed version (A)');
+    const a = await pick(t('2 of 3: choose the first changed version (A)'));
     if (!a) return;
-    const b = await pick('3 of 3: choose the second changed version (B)');
+    const b = await pick(t('3 of 3: choose the second changed version (B)'));
     if (!b) return;
     runThree(o, a, b);
   }
@@ -494,9 +496,9 @@
     }
   }
   async function chooseFolders() {
-    const a = await open({ directory: true, multiple: false, title: 'Choose the first (original) folder' });
+    const a = await open({ directory: true, multiple: false, title: t('Choose the first (original) folder') });
     if (typeof a !== 'string') return;
-    const b = await open({ directory: true, multiple: false, title: 'Choose the second (new) folder' });
+    const b = await open({ directory: true, multiple: false, title: t('Choose the second (new) folder') });
     if (typeof b !== 'string') return;
     runFolders(a, b);
   }
@@ -524,8 +526,8 @@
     if (!(await run(false, last)) && error) {
       const gone = /^Could not open "(.+?)":.*(cannot find|not find|No such file)/i.exec(error);
       error = gone
-        ? `The last comparison couldn't be reopened: "${gone[1]}" was moved or deleted.`
-        : `The last comparison couldn't be reopened. ${error}`;
+        ? t(`The last comparison couldn't be reopened: "{file}" was moved or deleted.`, { file: gone[1] })
+        : t("The last comparison couldn't be reopened. {why}", { why: error });
       paths = { left: null, right: null };
       ignore = { spaces: false, blank: false, caseLetters: false, rules: false };
     }
@@ -579,7 +581,7 @@
     const p = await open({
       multiple: false,
       directory: false,
-      title: side === 'left' ? 'Choose the original file' : 'Choose the new file',
+      title: side === 'left' ? t('Choose the original file') : t('Choose the new file'),
     });
     if (typeof p === 'string') setPath(side, p);
   }
@@ -713,14 +715,14 @@
     shareOpen = false;
     if (!summary) return;
     const path = await save({
-      title: 'Save the comparison as a report',
+      title: t('Save the comparison as a report'),
       defaultPath: `${pairName()}.html`,
-      filters: [{ name: 'Web page (opens in any browser, can be printed to PDF)', extensions: ['html'] }],
+      filters: [{ name: t('Web page (opens in any browser, can be printed to PDF)'), extensions: ['html'] }],
     });
     if (!path) return;
     try {
       await saveReport(path, new Date().toLocaleString());
-      tell('Report saved.', { label: 'Open it', run: () => openReport() });
+      tell(t('Report saved.'), { label: t('Open it'), run: () => openReport() });
     } catch (e) {
       tell(String(e));
     }
@@ -730,9 +732,9 @@
     if (!summary) return;
     try {
       await navigator.clipboard.writeText(await makePatch());
-      tell('Copied as a patch. Paste it into an e-mail, a chat or a code review.');
+      tell(t('Copied as a patch. Paste it into an e-mail, a chat or a code review.'));
     } catch (e) {
-      tell(`Couldn't copy: ${e}`);
+      tell(t("Couldn't copy: {why}", { why: String(e) }));
     }
   }
 
@@ -753,7 +755,7 @@
   const undo = (redo: boolean) => doEdit(() => undoRedo(redo));
   async function saveSide(left: boolean | null) {
     await doEdit(() => saveEdits(left));
-    if (!edits.left && !edits.right) tell('Saved.');
+    if (!edits.left && !edits.right) tell(t('Saved.'));
   }
   const discardSide = (left: boolean | null) => doEdit(() => discardEdits(left));
 
@@ -787,7 +789,7 @@
   async function compareClipboard() {
     const left = summary?.left.path ?? paths.left;
     if (!left || isPasted(left)) {
-      tell('Choose the original file first; then press Ctrl+Shift+V to compare it with what you copied.');
+      tell(t('Choose the original file first; then press Ctrl+Shift+V to compare it with what you copied.'));
       return;
     }
     let text = '';
@@ -797,7 +799,7 @@
       text = '';
     }
     if (!text) {
-      tell('There is no text in the clipboard. Copy some text first.');
+      tell(t('There is no text in the clipboard. Copy some text first.'));
       return;
     }
     try {
@@ -1014,52 +1016,52 @@
 <div class="app">
   <TitleBar {look} onLook={pickLook} {onHelp}>
     {#snippet lead()}
-      <button type="button" class="lb" onclick={newTab} title="New comparison in a new tab (Ctrl+T)">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg><span class="lbl">New</span>
+      <button type="button" class="lb" onclick={newTab} title={t("New comparison in a new tab (Ctrl+T)")}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg><span class="lbl">{t("New")}</span>
       </button>
-      <button type="button" class="lb" class:on={recentOpen} aria-pressed={recentOpen} disabled={!recent.length && !recentOpen} onclick={() => (recentOpen = !recentOpen)} title="Recent comparisons">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></svg><span class="lbl">Recent</span>
+      <button type="button" class="lb" class:on={recentOpen} aria-pressed={recentOpen} disabled={!recent.length && !recentOpen} onclick={() => (recentOpen = !recentOpen)} title={t("Recent comparisons")}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></svg><span class="lbl">{t("Recent")}</span>
       </button>
     {/snippet}
     {#snippet island()}
       {@const blocks = summary ? summary.blocks : threeSum ? threeSum.changes : 0}
       {@const none = blocks === 0}
-      <button type="button" class="ib sq" disabled={none} onclick={() => stepDiff(-1)} title="Previous difference (F7)" aria-label="Previous difference">
+      <button type="button" class="ib sq" disabled={none} onclick={() => stepDiff(-1)} title={t("Previous difference (F7)")} aria-label={t("Previous difference")}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
       </button>
       {#if summary && summary.blocks === 0}
-        <span class="counter same" title="No differences">✓<span class="nd"> No differences</span></span>
+        <span class="counter same" title={t("No differences")}>✓<span class="nd"> {t("No differences")}</span></span>
       {:else}
         <span class="counter" aria-live="polite">
           <b><RollingNumber value={(summary || threeSum) && current ? fmtNum(current.index + 1) : '–'} dir={roll} /></b>
-          <span>of {summary || threeSum ? fmtNum(blocks) : '–'}</span>
+          <span>{t("of")} {summary || threeSum ? fmtNum(blocks) : '–'}</span>
         </span>
       {/if}
-      <button type="button" class="ib sq" disabled={none} onclick={() => stepDiff(1)} title="Next difference (F8)" aria-label="Next difference">
+      <button type="button" class="ib sq" disabled={none} onclick={() => stepDiff(1)} title={t("Next difference (F8)")} aria-label={t("Next difference")}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
       </button>
       <i class="div"></i>
-      <button type="button" class="ib" disabled={!summary} onclick={() => (findMode = 'find')} title="Find text (Ctrl+F)">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="M20 20l-4.5-4.5" /></svg><span class="lbl">Find</span>
+      <button type="button" class="ib" disabled={!summary} onclick={() => (findMode = 'find')} title={t("Find text (Ctrl+F)")}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6" /><path d="M20 20l-4.5-4.5" /></svg><span class="lbl">{t("Find")}</span>
       </button>
-      <button type="button" class="ib" disabled={!summary} onclick={() => (findMode = 'goto')} title="Go to a line number (Ctrl+G)">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4L7 20M17 4l-2 16M4 9h16M3 15h16" /></svg><span class="lbl">Go to line</span>
+      <button type="button" class="ib" disabled={!summary} onclick={() => (findMode = 'goto')} title={t("Go to a line number (Ctrl+G)")}>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4L7 20M17 4l-2 16M4 9h16M3 15h16" /></svg><span class="lbl">{t("Go to line")}</span>
       </button>
       <i class="div"></i>
-      <span class="ig" role="group" aria-label="Ignore">
-        <span class="iglbl">Ignore</span>
-        <button type="button" class="chip" class:on={ignore.spaces} aria-pressed={ignore.spaces} onclick={() => toggle('spaces')} title="Ignore spaces: treat lines as equal if they only differ in spaces or tabs">
-          <span class="dot"></span>Spaces
+      <span class="ig" role="group" aria-label={t("Ignore")}>
+        <span class="iglbl">{t("Ignore")}</span>
+        <button type="button" class="chip" class:on={ignore.spaces} aria-pressed={ignore.spaces} onclick={() => toggle('spaces')} title={t("Ignore spaces: treat lines as equal if they only differ in spaces or tabs")}>
+          <span class="dot"></span>{t("Spaces")}
         </button>
-        <button type="button" class="chip" class:on={ignore.blank} aria-pressed={ignore.blank} onclick={() => toggle('blank')} title="Ignore blank lines: don't count empty lines as differences">
-          <span class="dot"></span><span class="long">Blank lines</span><span class="short">Blank</span>
+        <button type="button" class="chip" class:on={ignore.blank} aria-pressed={ignore.blank} onclick={() => toggle('blank')} title={t("Ignore blank lines: don't count empty lines as differences")}>
+          <span class="dot"></span><span class="long">{t("Blank lines")}</span><span class="short">{t("Blank")}</span>
         </button>
-        <button type="button" class="chip" class:on={ignore.caseLetters} aria-pressed={ignore.caseLetters} onclick={() => toggle('caseLetters')} title="Ignore case: treat UPPER and lower case letters as the same">
-          <span class="dot"></span>Case
+        <button type="button" class="chip" class:on={ignore.caseLetters} aria-pressed={ignore.caseLetters} onclick={() => toggle('caseLetters')} title={t("Ignore case: treat UPPER and lower case letters as the same")}>
+          <span class="dot"></span>{t("Case")}
         </button>
         <span class="rw" bind:this={rulesWrap}>
-          <button type="button" class="chip" class:on={ignore.rules} aria-pressed={ignore.rules} aria-expanded={rulesOpen} onclick={() => (rulesOpen = !rulesOpen)} title="Ignore rules: leave out parts of lines, like times or IDs">
-            <span class="dot"></span>Rules
+          <button type="button" class="chip" class:on={ignore.rules} aria-pressed={ignore.rules} aria-expanded={rulesOpen} onclick={() => (rulesOpen = !rulesOpen)} title={t("Ignore rules: leave out parts of lines, like times or IDs")}>
+            <span class="dot"></span>{t("Rules")}
           </button>
           {#if rulesOpen}
             <RulesPanel config={rulesCfg} on={ignore.rules} onApply={applyRules} onClose={() => (rulesOpen = false)} />
@@ -1069,22 +1071,22 @@
     {/snippet}
     {#snippet actions()}
       <span class="share" class:open={shareOpen}>
-        <button type="button" class="sharebtn" disabled={!summary} aria-expanded={shareOpen} onclick={() => (shareOpen = !shareOpen)} title="Share: save a report or copy a patch" aria-label="Share">
+        <button type="button" class="sharebtn" disabled={!summary} aria-expanded={shareOpen} onclick={() => (shareOpen = !shareOpen)} title={t("Share: save a report or copy a patch")} aria-label={t("Share")}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M8 8l4-4 4 4M6 12v6a2 2 0 002 2h8a2 2 0 002-2v-6" /></svg>
         </button>
         {#if shareOpen}
           <div class="sharemenu" role="menu">
             <button type="button" role="menuitem" onclick={exportReport}>
-              <b>Save as a report…</b><small>A web page with every difference. Opens in any browser; print it to make a PDF.</small>
+              <b>{t("Save as a report…")}</b><small>{t("A web page with every difference. Opens in any browser; print it to make a PDF.")}</small>
             </button>
             <button type="button" role="menuitem" onclick={copyPatch}>
-              <b>Copy as a patch</b><small>The differences as text, in the "diff" format that Git and code tools read.</small>
+              <b>{t("Copy as a patch")}</b><small>{t("The differences as text, in the \"diff\" format that Git and code tools read.")}</small>
             </button>
           </div>
         {/if}
       </span>
       {#if canInstall}
-        <button type="button" class="install" onclick={() => (installOpen = true)} title="Add SideBySide to your Start Menu" aria-label={install?.installed ? 'Update install' : 'Install'}>
+        <button type="button" class="install" onclick={() => (installOpen = true)} title={t("Add SideBySide to your Start Menu")} aria-label={install?.installed ? 'Update install' : 'Install'}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></svg>
           <span class="lbl">{install?.installed ? 'Update install' : 'Install'}</span>
         </button>
@@ -1094,8 +1096,8 @@
 
   <div class="body">
     {#if recentOpen}
-      <aside class="panel" aria-label="Recent comparisons">
-        <h2>Recent comparisons</h2>
+      <aside class="panel" aria-label={t("Recent comparisons")}>
+        <h2>{t("Recent comparisons")}</h2>
         <RecentList items={recent} onOpen={openRecent} onRemove={(r) => (recent = removeRecent(r))} onClear={() => (recent = clearRecent())} />
       </aside>
     {/if}
@@ -1117,41 +1119,41 @@
 
       {#if summary && (summary.left.hex || summary.right.hex)}
         <div class="note">
-          <span>{summary.left.hex && summary.right.hex ? "These files aren't text, so they're" : "One of these files isn't text, so it's"} shown as bytes in hexadecimal: 16 per line, with the position on the left and the readable letters on the right.</span>
+          <span>{summary.left.hex && summary.right.hex ? t("These files aren't text, so they're shown as bytes in hexadecimal: 16 per line, with the position on the left and the readable letters on the right.") : t("One of these files isn't text, so it's shown as bytes in hexadecimal: 16 per line, with the position on the left and the readable letters on the right.")}</span>
         </div>
       {/if}
 
       {#if summary && tidyable && shownTidy}
         <div class="note">
-          <span>Tidied up: one item per line. The line numbers are for the tidied text.</span>
-          <button type="button" onclick={() => changeTidy(false)}>Show as they are</button>
+          <span>{t("Tidied up: one item per line. The line numbers are for the tidied text.")}</span>
+          <button type="button" onclick={() => changeTidy(false)}>{t("Show as they are")}</button>
         </div>
       {:else if summary && tidyable && !tidyTipHidden}
         <div class="note">
-          <span>These are {tidyable} files. Tidy them up first, with one item per line? Then the formatting doesn't count, only the content.</span>
-          <button type="button" class="go" onclick={() => changeTidy(true)}>Tidy up</button>
-          <button type="button" class="x" aria-label="Hide this tip" title="Hide this tip" onclick={() => (tidyTipHidden = true)}>×</button>
+          <span>{t("These are {kind} files. Tidy them up first, with one item per line? Then the formatting doesn't count, only the content.", { kind: tidyable })}</span>
+          <button type="button" class="go" onclick={() => changeTidy(true)}>{t("Tidy up")}</button>
+          <button type="button" class="x" aria-label={t("Hide this tip")} title={t("Hide this tip")} onclick={() => (tidyTipHidden = true)}>×</button>
         </div>
       {/if}
 
       {#if filesChanged && summary && !live}
         <div class="note" role="alert">
-          <span>A file was changed after it was compared, so the text shown may be out of date.</span>
-          <button type="button" onclick={() => run()}>Compare again</button>
+          <span>{t("A file was changed after it was compared, so the text shown may be out of date.")}</span>
+          <button type="button" onclick={() => run()}>{t("Compare again")}</button>
         </div>
       {/if}
 
       {#if tabs.length > 1}
-        <div class="tabs" role="tablist" aria-label="Comparisons">
-          {#each tabs as t (t.id)}
-            <div class="tab" class:on={t.id === activeTab}>
-              <button type="button" role="tab" aria-selected={t.id === activeTab} onclick={() => switchTab(t.id)} title={tabTitle(t)}>
-                {#if t.id === activeTab && dirty}<span class="dot" aria-label="unsaved changes">●</span>{/if}{tabTitle(t)}
+        <div class="tabs" role="tablist" aria-label={t("Comparisons")}>
+          {#each tabs as tb (tb.id)}
+            <div class="tab" class:on={tb.id === activeTab}>
+              <button type="button" role="tab" aria-selected={tb.id === activeTab} onclick={() => switchTab(tb.id)} title={tabTitle(tb)}>
+                {#if tb.id === activeTab && dirty}<span class="dot" aria-label={t("unsaved changes")}>●</span>{/if}{tabTitle(tb)}
               </button>
-              <button type="button" class="x" aria-label="Close this tab" title="Close (Ctrl+W)" onclick={() => closeTab(t.id)}>×</button>
+              <button type="button" class="x" aria-label={t("Close this tab")} title={t("Close (Ctrl+W)")} onclick={() => closeTab(tb.id)}>×</button>
             </div>
           {/each}
-          <button type="button" class="tabnew" aria-label="New tab" title="New tab (Ctrl+T)" onclick={newTab}>+</button>
+          <button type="button" class="tabnew" aria-label={t("New tab")} title={t("New tab (Ctrl+T)")} onclick={newTab}>+</button>
         </div>
       {/if}
 
@@ -1163,28 +1165,28 @@
               <div class="fh" class:old={side === 'left'} class:new={side === 'right'} class:drop={dropSide === side} style:grid-column={side === 'left' ? 1 : 3}>
                 <span class="ic" aria-hidden="true">{side === 'left' ? 'OLD' : 'NEW'}</span>
                 <div class="t" title={info.path}>
-                  <b><span class="sr">{side === 'left' ? 'Original: ' : 'New: '}</span>{pasted ? 'Pasted text' : info.name}</b>
-                  <small>{pasted ? '' : `${folderOf(info.path)} · `}{fmtSize(info.size)} · {fmtNum(info.lines)} {info.lines === 1 ? 'line' : 'lines'}</small>
+                  <b><span class="sr">{side === 'left' ? t('Original:') : t('New:')} </span>{pasted ? t('Pasted text') : info.name}</b>
+                  <small>{pasted ? '' : `${folderOf(info.path)} · `}{fmtSize(info.size)} · {info.lines === 1 ? t('1 line') : t('{n} lines', { n: fmtNum(info.lines) })}</small>
                 </div>
                 {#if side === 'left' ? edits.left : edits.right}
-                  <span class="edited" title="Changed here, not saved yet">● edited</span>
-                  <button type="button" class="change" onclick={() => discardSide(side === 'left')} title="Throw away the changes to this file">Discard</button>
-                  <button type="button" class="change save" onclick={() => saveSide(side === 'left')} title="Save the changes to this file (Ctrl+S saves both)">Save</button>
+                  <span class="edited" title={t("Changed here, not saved yet")}>{t("● edited")}</span>
+                  <button type="button" class="change" onclick={() => discardSide(side === 'left')} title={t("Throw away the changes to this file")}>{t("Discard")}</button>
+                  <button type="button" class="change save" onclick={() => saveSide(side === 'left')} title={t("Save the changes to this file (Ctrl+S saves both)")}>{t("Save")}</button>
                 {:else}
                 <span class="lw">
-                  <button type="button" class="change" class:on={!!info.part} aria-expanded={linesOpen === side} onclick={() => (linesOpen = linesOpen === side ? null : side)} title="Compare only some lines of this file">
-                    {info.part ? `Lines ${fmtNum(info.part[0])}–${fmtNum(info.part[1])}` : 'Lines…'}
+                  <button type="button" class="change" class:on={!!info.part} aria-expanded={linesOpen === side} onclick={() => (linesOpen = linesOpen === side ? null : side)} title={t("Compare only some lines of this file")}>
+                    {info.part ? t('Lines {a}–{b}', { a: fmtNum(info.part[0]), b: fmtNum(info.part[1]) }) : t('Lines…')}
                   </button>
                   {#if linesOpen === side}
                     <LinesPanel {side} lines={fullLines[side] || info.lines} range={ranges[side]} onApply={(r) => setRange(side, r)} onClose={() => (linesOpen = null)} />
                   {/if}
                 </span>
-                <button type="button" class="change" onclick={() => choose(side)}>Change…</button>
+                <button type="button" class="change" onclick={() => choose(side)}>{t("Change…")}</button>
                 {/if}
               </div>
             {/each}
             <div class="swapdot">
-              <button type="button" class:spun={swapped} onclick={swapCards} title="Swap left and right" aria-label="Swap left and right">
+              <button type="button" class:spun={swapped} onclick={swapCards} title={t("Swap left and right")} aria-label={t("Swap left and right")}>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h11l-3-3M17 17H6l3 3" /></svg>
               </button>
             </div>
@@ -1233,12 +1235,12 @@
         {:else}
           <section class="empty">
             <div class="hello rise" style:--i={0}>
-              <h2>What should we compare?</h2>
-              <p>Drop two files anywhere, or choose them below. The comparison starts as soon as both are there.</p>
+              <h2>{t("What should we compare?")}</h2>
+              <p>{t("Drop two files anywhere, or choose them below. The comparison starts as soon as both are there.")}</p>
             </div>
             <div class="slots rise" style:--i={1}>
               {#each ['left', 'right'] as const as side, n (side)}
-                {#if n === 1}<span class="vs" aria-hidden="true">vs</span>{/if}
+                {#if n === 1}<span class="vs" aria-hidden="true">{t("vs")}</span>{/if}
                 <button
                   type="button"
                   class="slot"
@@ -1247,16 +1249,16 @@
                   class:drop={dropSide === side}
                   class:filled={!!paths[side]}
                   onclick={() => choose(side)}
-                  title={paths[side] ?? (side === 'left' ? 'Choose the original file' : 'Choose the new file')}
+                  title={paths[side] ?? (side === 'left' ? t('Choose the original file') : t('Choose the new file'))}
                 >
                   <svg class="ant" aria-hidden="true"><rect x="1" y="1" rx="11" /></svg>
                   <span class="big" aria-hidden="true">{side === 'left' ? 'OLD' : 'NEW'}</span>
                   {#if paths[side]}
                     <b>{fileName(paths[side] ?? '')}</b>
-                    <small>Click to choose another</small>
+                    <small>{t("Click to choose another")}</small>
                   {:else}
-                    <b>{side === 'left' ? 'Choose the original' : 'Choose the new version'}</b>
-                    <small>or drop a file here</small>
+                    <b>{side === 'left' ? t('Choose the original') : t('Choose the new version')}</b>
+                    <small>{t("or drop a file here")}</small>
                   {/if}
                 </button>
               {/each}
@@ -1265,23 +1267,23 @@
               <p class="error" role="alert">{error}</p>
             {/if}
             <p class="orp rise" style:--i={2}>
-              No files? <button type="button" class="link" onclick={() => (pasteMode = true)}>Paste text instead</button>
-              · <button type="button" class="link" onclick={() => (urlOpen = true)} title="Ctrl+L">Open a web link</button>
-              · <button type="button" class="link" onclick={chooseFolders}>Compare two folders</button>
-              · <button type="button" class="link" onclick={chooseThree}>Compare three files</button>
+              {t("No files?")} <button type="button" class="link" onclick={() => (pasteMode = true)}>{t("Paste text instead")}</button>
+              · <button type="button" class="link" onclick={() => (urlOpen = true)} title={t("Ctrl+L")}>{t("Open a web link")}</button>
+              · <button type="button" class="link" onclick={chooseFolders}>{t("Compare two folders")}</button>
+              · <button type="button" class="link" onclick={chooseThree}>{t("Compare three files")}</button>
               {#if paths.left}
-                · <button type="button" class="link" onclick={compareClipboard} title="Ctrl+Shift+V">Compare with what you copied</button>
+                · <button type="button" class="link" onclick={compareClipboard} title={t("Ctrl+Shift+V")}>{t("Compare with what you copied")}</button>
               {/if}
             </p>
             {#if recent.length}
               <div class="recent-home rise" style:--i={3}>
-                <h2>Recent</h2>
+                <h2>{t("Recent")}</h2>
                 <RecentList items={recent} limit={6} cards onOpen={openRecent} onRemove={(r) => (recent = removeRecent(r))} />
               </div>
             {/if}
             <button type="button" class="reopen rise" style:--i={4} role="switch" aria-checked={reopen} onclick={toggleReopen}>
               <span class="knob" aria-hidden="true"></span>
-              Reopen my last comparison when SideBySide starts
+              {t("Reopen my last comparison when SideBySide starts")}
             </button>
           </section>
         {/if}
@@ -1298,10 +1300,10 @@
               </div>
               <span class="pbar" aria-hidden="true"><i style:transform="scaleX({pct / 1000})"></i></span>
               <span class="busytxt">
-                <span>{folderBusy ? 'Comparing the folders…' : pct < 800 ? 'Reading both files…' : 'Matching lines…'}</span>
+                <span>{folderBusy ? t('Comparing the folders…') : pct < 800 ? t('Reading both files…') : t('Matching lines…')}</span>
                 <b>{Math.floor(pct / 10)}%</b>
               </span>
-              <button type="button" class="cancel" onclick={() => cancel()}>Cancel</button>
+              <button type="button" class="cancel" onclick={() => cancel()}>{t("Cancel")}</button>
             </div>
           </div>
         {/if}
@@ -1316,14 +1318,14 @@
   {#if ask}
     <div class="askwrap" role="presentation">
       <div class="ask" role="alertdialog" aria-modal="true" aria-labelledby="ask-title">
-        <h2 id="ask-title">Save your changes?</h2>
-        <p>You changed {changedNames()} but didn't save {edits.left && edits.right ? 'them' : 'it'} yet.</p>
+        <h2 id="ask-title">{t("Save your changes?")}</h2>
+        <p>{edits.left && edits.right ? t("You changed {files} but didn't save them yet.", { files: changedNames() }) : t("You changed {files} but didn't save it yet.", { files: changedNames() })}</p>
         <div class="askbtns">
-          <button type="button" class="ghost" onclick={() => answer('cancel')}>Cancel</button>
+          <button type="button" class="ghost" onclick={() => answer('cancel')}>{t("Cancel")}</button>
           <span class="grow"></span>
-          <button type="button" class="ghost" onclick={() => answer('drop')}>Don't save</button>
+          <button type="button" class="ghost" onclick={() => answer('drop')}>{t("Don't save")}</button>
           <!-- svelte-ignore a11y_autofocus -->
-          <button type="button" class="primary" autofocus onclick={() => answer('save')}>Save</button>
+          <button type="button" class="primary" autofocus onclick={() => answer('save')}>{t("Save")}</button>
         </div>
       </div>
     </div>
@@ -1356,12 +1358,12 @@
 
   <footer class="status">
     {#if busy}
-      <span>Comparing…</span>
+      <span>{t("Comparing…")}</span>
     {:else if error}
-      <span>Couldn't compare</span>
+      <span>{t("Couldn't compare")}</span>
     {:else if summary}
       {#if summary.blocks === 0}
-        <span class="same">✓ Files are identical{ignore.spaces || ignore.caseLetters || ignore.blank || ignore.rules ? ' (with ignore options)' : ''}</span>
+        <span class="same">{ignore.spaces || ignore.caseLetters || ignore.blank || ignore.rules ? t('✓ Files are identical (with ignore options)') : t('✓ Files are identical')}</span>
       {:else}
         {@const parts = summary.changed + summary.added + summary.removed + summary.moved || 1}
         {#key summary}
@@ -1369,39 +1371,39 @@
             <i class="c" style:flex={summary.changed / parts}></i><i class="a" style:flex={summary.added / parts}></i><i class="d" style:flex={summary.removed / parts}></i><i class="m" style:flex={summary.moved / parts}></i>
           </span>
         {/key}
-        <b>{fmtNum(summary.blocks)} {summary.blocks === 1 ? 'difference' : 'differences'}</b>
-        <span class="lg c">{fmtNum(summary.changed)} changed</span>
-        <span class="lg a">{fmtNum(summary.added)} added</span>
-        <span class="lg d">{fmtNum(summary.removed)} removed</span>
-        {#if summary.moved}<span class="lg m">{fmtNum(summary.moved)} moved</span>{/if}
+        <b>{summary.blocks === 1 ? t('1 difference') : t('{n} differences', { n: fmtNum(summary.blocks) })}</b>
+        <span class="lg c">{t('{n} changed', { n: fmtNum(summary.changed) })}</span>
+        <span class="lg a">{t('{n} added', { n: fmtNum(summary.added) })}</span>
+        <span class="lg d">{t('{n} removed', { n: fmtNum(summary.removed) })}</span>
+        {#if summary.moved}<span class="lg m">{t('{n} moved', { n: fmtNum(summary.moved) })}</span>{/if}
       {/if}
     {:else if threeSum}
-      <b>{threeSum.changes === 0 ? '✓ No changes' : `${fmtNum(threeSum.changes)} ${threeSum.changes === 1 ? 'change' : 'changes'}`}</b>
-      {#if threeSum.conflicts}<span class="lg d">{fmtNum(threeSum.conflicts)} {threeSum.conflicts === 1 ? 'conflict' : 'conflicts'} (A and B changed the same lines differently)</span>{/if}
-      <span>compared in {(threeSum.millis / 1000).toFixed(2)} s</span>
+      <b>{threeSum.changes === 0 ? t('✓ No changes') : threeSum.changes === 1 ? t('1 change') : t('{n} changes', { n: fmtNum(threeSum.changes) })}</b>
+      {#if threeSum.conflicts}<span class="lg d">{threeSum.conflicts === 1 ? t('1 conflict (A and B changed the same lines differently)') : t('{n} conflicts (A and B changed the same lines differently)', { n: fmtNum(threeSum.conflicts) })}</span>{/if}
+      <span>{t('compared in {s} s', { s: (threeSum.millis / 1000).toFixed(2) })}</span>
     {:else if folders}
       {@const changes = folders.different + folders.onlyLeft + folders.onlyRight}
-      <b>{changes === 0 ? '✓ The folders are the same' : `${fmtNum(changes)} ${changes === 1 ? 'file differs' : 'files differ'}`}</b>
-      <span>out of {fmtNum(folders.entries.length)} · compared in {(folders.millis / 1000).toFixed(2)} s</span>
+      <b>{changes === 0 ? t('✓ The folders are the same') : changes === 1 ? t('1 file differs') : t('{n} files differ', { n: fmtNum(changes) })}</b>
+      <span>{t('out of {n} · compared in {s} s', { n: fmtNum(folders.entries.length), s: (folders.millis / 1000).toFixed(2) })}</span>
     {:else}
-      <span>Ready</span>
+      <span>{t("Ready")}</span>
     {/if}
     <span class="grow"></span>
     {#if summary && !busy}
       {#if live && liveProblem}
-        <span class="live-note warn" title={liveProblem}>Can't read a file right now, trying again…</span>
+        <span class="live-note warn" title={liveProblem}>{t("Can't read a file right now, trying again…")}</span>
       {:else if live && updating}
-        <span class="live-note">Updating…</span>
+        <span class="live-note">{t("Updating…")}</span>
       {:else if live && updatedAt}
-        <span class="live-note">Updated {clock(updatedAt)}</span>
+        <span class="live-note">{t('Updated {time}', { time: clock(updatedAt) })}</span>
       {:else}
-        <span class="took">Compared in {(summary.millis / 1000).toFixed(2)} s</span>
+        <span class="took">{t('Compared in {s} s', { s: (summary.millis / 1000).toFixed(2) })}</span>
       {/if}
-      <span class="views" role="group" aria-label="Layout">
-        <button type="button" aria-pressed={!prefs.inline} title="Side by side" aria-label="Side by side" onclick={() => setInline(false)}>
+      <span class="views" role="group" aria-label={t("Layout")}>
+        <button type="button" aria-pressed={!prefs.inline} title={t("Side by side")} aria-label={t("Side by side")} onclick={() => setInline(false)}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="7.5" height="14" rx="1.5" /><rect x="13" y="5" width="7.5" height="14" rx="1.5" /></svg>
         </button>
-        <button type="button" aria-pressed={prefs.inline} title="Inline: one column, removed words struck through, added words underlined" aria-label="Inline" onclick={() => setInline(true)}>
+        <button type="button" aria-pressed={prefs.inline} title={t("Inline: one column, removed words struck through, added words underlined")} aria-label={t("Inline")} onclick={() => setInline(true)}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="1.5" /><path d="M7 10h7M7 14h10" /></svg>
         </button>
       </span>
@@ -1411,9 +1413,9 @@
         class:on={prefs.fold}
         aria-pressed={prefs.fold}
         onclick={toggleFold}
-        title={prefs.fold ? 'Unchanged lines are hidden (a few stay around each difference). Click to show them all.' : 'Hide long runs of unchanged lines, so only the differences and a few lines around them show'}
+        title={prefs.fold ? t('Unchanged lines are hidden (a few stay around each difference). Click to show them all.') : t('Hide long runs of unchanged lines, so only the differences and a few lines around them show')}
       >
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4l5 5 5-5M7 20l5-5 5 5" /></svg>Hide unchanged
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4l5 5 5-5M7 20l5-5 5 5" /></svg>{t("Hide unchanged")}
       </button>
       <button
         type="button"
@@ -1421,18 +1423,18 @@
         class:on={live}
         aria-pressed={live}
         onclick={toggleLive}
-        title={live ? 'Live: on. The comparison updates by itself when a file changes. Click to turn off.' : 'Live: compare again by itself whenever a file changes (handy for log files)'}
+        title={live ? t('Live: on. The comparison updates by itself when a file changes. Click to turn off.') : t('Live: compare again by itself whenever a file changes (handy for log files)')}
       >
-        <span class="pulse" aria-hidden="true"></span>Live
+        <span class="pulse" aria-hidden="true"></span>{t("Live")}
       </button>
     {/if}
     {#if newVersion}
-      <button type="button" class="new-version" onclick={() => (aboutOpen = true)}>⬆ Version {newVersion.latest} is available</button>
+      <button type="button" class="new-version" onclick={() => (aboutOpen = true)}>{t('⬆ Version {v} is available', { v: newVersion.latest })}</button>
     {/if}
-    <button type="button" class="zoom" onclick={() => zoom(0)} title="Text size (Ctrl + mouse wheel, Ctrl +/-). Click to reset.">
+    <button type="button" class="zoom" onclick={() => zoom(0)} title={t("Text size (Ctrl + mouse wheel, Ctrl +/-). Click to reset.")}>
       {Math.round((prefs.fontSize / FONT_DEFAULT) * 100)}%
     </button>
-    <span class="ver">SideBySide {version ? `v${version}` : ''}{install?.runningInstalled ? '' : ' · portable'}</span>
+    <span class="ver">{t("SideBySide")} {version ? `v${version}` : ''}{install?.runningInstalled ? '' : ' · portable'}</span>
   </footer>
 </div>
 

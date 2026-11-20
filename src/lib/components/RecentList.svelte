@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '#lib/i18n.svelte.ts';
   // Recent comparisons: a list (side panel) or small cards (start screen).
   import { fileName, folderOf, timeAgo, type Recent } from '#lib/recent.ts';
 
@@ -28,15 +29,15 @@
           <!-- On the small cards the time comes first, so a long folder can't push it out of view. -->
           <span class="sub">{cards ? `${timeAgo(r.at)} · ${folderOf(r.left)}` : `${folderOf(r.left)} · ${timeAgo(r.at)}`}</span>
         </button>
-        <button type="button" class="rm" aria-label="Remove from list" title="Remove from list" onclick={() => onRemove(r)}>×</button>
+        <button type="button" class="rm" aria-label={t("Remove from list")} title={t("Remove from list")} onclick={() => onRemove(r)}>×</button>
       </li>
     {/each}
   </ul>
   {#if onClear}
-    <button type="button" class="clear" onclick={onClear}>Clear list</button>
+    <button type="button" class="clear" onclick={onClear}>{t("Clear list")}</button>
   {/if}
 {:else}
-  <p class="none">No recent comparisons yet.</p>
+  <p class="none">{t("No recent comparisons yet.")}</p>
 {/if}
 
 <style>

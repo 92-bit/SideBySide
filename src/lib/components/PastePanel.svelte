@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '#lib/i18n.svelte.ts';
   // Compare two pieces of text without saving them as files first.
   let {
     onCompare,
@@ -18,20 +19,20 @@
 <section class="paste">
   <div class="cols">
     <label class="col">
-      <span class="head"><span class="ic old" aria-hidden="true">OLD</span>Original</span>
-      <textarea bind:this={first} bind:value={original} placeholder="Paste the original text here" spellcheck="false"></textarea>
+      <span class="head"><span class="ic old" aria-hidden="true">{t("OLD")}</span>{t("Original")}</span>
+      <textarea bind:this={first} bind:value={original} placeholder={t("Paste the original text here")} spellcheck="false"></textarea>
     </label>
     <label class="col">
-      <span class="head"><span class="ic new" aria-hidden="true">NEW</span>New</span>
-      <textarea bind:value={changed} placeholder="Paste the new text here" spellcheck="false"></textarea>
+      <span class="head"><span class="ic new" aria-hidden="true">{t("NEW")}</span>{t("New")}</span>
+      <textarea bind:value={changed} placeholder={t("Paste the new text here")} spellcheck="false"></textarea>
     </label>
   </div>
   <div class="actions">
-    <button type="button" class="ghost" onclick={onBack}>← Use files instead</button>
+    <button type="button" class="ghost" onclick={onBack}>{t("← Use files instead")}</button>
     <span class="grow">
       {#if error}<span class="error" role="alert">{error}</span>{/if}
     </span>
-    <button type="button" class="primary" disabled={!original && !changed} onclick={() => onCompare(original, changed)}>Compare</button>
+    <button type="button" class="primary" disabled={!original && !changed} onclick={() => onCompare(original, changed)}>{t("Compare")}</button>
   </div>
 </section>
 

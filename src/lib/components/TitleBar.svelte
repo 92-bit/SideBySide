@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '#lib/i18n.svelte.ts';
   // The top bar: name on the left, the main buttons in the middle (the "island", passed in by the
   // page), and Install, Theme, Help and the window buttons on the right. Drag it to move the window.
   import type { Snippet } from 'svelte';
@@ -50,7 +51,7 @@
 
   <div class="brand" data-tauri-drag-region>
     <span class="logo" aria-hidden="true"></span>
-    <span class="name" data-tauri-drag-region>SideBySide</span>
+    <span class="name" data-tauri-drag-region>{t("SideBySide")}</span>
     {#if lead}
       <span class="lead">{@render lead()}</span>
     {/if}
@@ -70,8 +71,8 @@
         class:open={themeOpen}
         aria-haspopup="dialog"
         aria-expanded={themeOpen}
-        aria-label="Theme"
-        title="Theme and light/dark"
+        aria-label={t("Theme")}
+        title={t("Theme and light/dark")}
         onclick={() => (themeOpen = !themeOpen)}
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -93,8 +94,8 @@
         class:open={helpOpen}
         aria-haspopup="menu"
         aria-expanded={helpOpen}
-        aria-label="Help"
-        title="Help"
+        aria-label={t("Help")}
+        title={t("Help")}
         onclick={() => (helpOpen = !helpOpen)}
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -103,24 +104,24 @@
       </button>
       {#if helpOpen}
         <div class="dropdown" role="menu">
-          <button type="button" role="menuitem" onclick={() => pick('check')}>Check for updates…</button>
-          <button type="button" role="menuitem" onclick={() => pick('keys')}>Keyboard shortcuts <span class="hint">F1</span></button>
-          <button type="button" role="menuitem" onclick={() => pick('git')}>Use with Git…</button>
-          <button type="button" role="menuitem" onclick={() => pick('site')}>Project page on GitHub</button>
+          <button type="button" role="menuitem" onclick={() => pick('check')}>{t("Check for updates…")}</button>
+          <button type="button" role="menuitem" onclick={() => pick('keys')}>{t("Keyboard shortcuts")} <span class="hint">F1</span></button>
+          <button type="button" role="menuitem" onclick={() => pick('git')}>{t("Use with Git…")}</button>
+          <button type="button" role="menuitem" onclick={() => pick('site')}>{t("Project page on GitHub")}</button>
           <hr />
-          <button type="button" role="menuitem" onclick={() => pick('about')}>About SideBySide</button>
+          <button type="button" role="menuitem" onclick={() => pick('about')}>{t("About SideBySide")}</button>
         </div>
       {/if}
     </div>
 
     <div class="wc">
-      <button type="button" aria-label="Minimize" onclick={() => win.minimize()}>
+      <button type="button" aria-label={t("Minimize")} onclick={() => win.minimize()}>
         <svg viewBox="0 0 10 10" width="10" height="10"><path d="M0 5h10" stroke="currentColor" /></svg>
       </button>
-      <button type="button" aria-label="Maximize" onclick={() => win.toggleMaximize()}>
+      <button type="button" aria-label={t("Maximize")} onclick={() => win.toggleMaximize()}>
         <svg viewBox="0 0 10 10" width="10" height="10"><rect x=".5" y=".5" width="9" height="9" fill="none" stroke="currentColor" /></svg>
       </button>
-      <button type="button" class="close" aria-label="Close" onclick={() => win.close()}>
+      <button type="button" class="close" aria-label={t("Close")} onclick={() => win.close()}>
         <svg viewBox="0 0 10 10" width="10" height="10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" /></svg>
       </button>
     </div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '#lib/i18n.svelte.ts';
   // Ctrl+L (or "Open a web link" on the start screen): download a file from the web and compare it.
   import { fetchUrl } from '#lib/api.ts';
   import { trapFocus } from '#lib/trapFocus.ts';
@@ -39,18 +40,18 @@
       get('right');
     }}
   >
-    <h2 id="url-title">Open a file from a web link</h2>
-    <p class="small">For example a file on GitHub ("Raw" link) or on any web page. It's downloaded and compared like a file on your computer.</p>
+    <h2 id="url-title">{t("Open a file from a web link")}</h2>
+    <p class="small">{t("For example a file on GitHub (\"Raw\" link) or on any web page. It's downloaded and compared like a file on your computer.")}</p>
     <!-- svelte-ignore a11y_autofocus -->
-    <input type="url" bind:value={url} placeholder="https://…" spellcheck="false" autofocus disabled={!!busy} aria-label="Web link" />
+    <input type="url" bind:value={url} placeholder={t("https://…")} spellcheck="false" autofocus disabled={!!busy} aria-label={t("Web link")} />
     {#if error}
       <p class="warn">{error}</p>
     {/if}
     <div class="actions">
-      <button type="button" class="ghost" onclick={onClose} disabled={!!busy}>Cancel</button>
+      <button type="button" class="ghost" onclick={onClose} disabled={!!busy}>{t("Cancel")}</button>
       <span class="grow"></span>
-      <button type="button" class="ghost" disabled={!ok || !!busy} onclick={() => get('left')}>{busy === 'left' ? 'Downloading…' : 'Use as the original'}</button>
-      <button type="submit" class="primary" disabled={!ok || !!busy}>{busy === 'right' ? 'Downloading…' : 'Use as the new version'}</button>
+      <button type="button" class="ghost" disabled={!ok || !!busy} onclick={() => get('left')}>{busy === 'left' ? t('Downloading…') : t('Use as the original')}</button>
+      <button type="submit" class="primary" disabled={!ok || !!busy}>{busy === 'right' ? t('Downloading…') : t('Use as the new version')}</button>
     </div>
   </form>
   </div>

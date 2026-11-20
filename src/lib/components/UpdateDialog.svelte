@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '#lib/i18n.svelte.ts';
   // "About SideBySide" and "Check for updates" in one small window.
   import { onMount } from 'svelte';
   import { openUrl } from '@tauri-apps/plugin-opener';
@@ -59,53 +60,53 @@
     <div class="head">
       <img src="/icon.png" alt="" width="40" height="40" />
       <div>
-        <h2 id="about-title">SideBySide <span class="by">by 92-bit</span></h2>
-        <p class="ver">Version {version}{portable ? ' · portable' : ''}</p>
+        <h2 id="about-title">{t("SideBySide")} <span class="by">{t("by 92-bit")}</span></h2>
+        <p class="ver">{t('Version {v}', { v: version })}{portable ? ` · ${t('portable')}` : ''}</p>
       </div>
     </div>
     <p class="small">
-      Free and open source under the GPL-3.0 license.
-      <button type="button" class="link" onclick={() => openUrl(PROJECT_URL)}>Project page on GitHub</button>
+      {t("Free and open source under the GPL-3.0 license.")}
+      <button type="button" class="link" onclick={() => openUrl(PROJECT_URL)}>{t("Project page on GitHub")}</button>
     </p>
 
     <section class="update" aria-live="polite">
       {#if step === 'checking'}
-        <p class="muted">Checking for updates…</p>
+        <p class="muted">{t("Checking for updates…")}</p>
       {:else if step === 'installing'}
-        <p>Downloading the update and checking its signature… SideBySide will restart by itself.</p>
+        <p>{t("Downloading the update and checking its signature… SideBySide will restart by itself.")}</p>
         <span class="bar"><span></span></span>
       {:else if step === 'error'}
         <p class="error">{error}</p>
       {:else if info && info.available}
-        <p><b>Version {info.latest} is available.</b> You have {info.current}.</p>
+        <p><b>{t('Version {v} is available.', { v: info.latest })}</b> {t('You have {v}.', { v: info.current })}</p>
         {#if info.notes}
           <div class="notes">{info.notes}</div>
         {/if}
       {:else}
-        <p class="ok">✓ You have the newest version.</p>
+        <p class="ok">{t("✓ You have the newest version.")}</p>
       {/if}
     </section>
 
     <label class="opt">
       <input type="checkbox" bind:checked={auto} onchange={() => saveAutoUpdate(auto)} />
-      <span>Check for updates automatically (once a day)</span>
+      <span>{t("Check for updates automatically (once a day)")}</span>
     </label>
 
     <div class="actions">
       {#if step === 'error'}
-        <button type="button" class="ghost" onclick={check}>Try again</button>
+        <button type="button" class="ghost" onclick={check}>{t("Try again")}</button>
       {:else if step === 'result' && !info?.available}
-        <button type="button" class="ghost" onclick={check}>Check again</button>
+        <button type="button" class="ghost" onclick={check}>{t("Check again")}</button>
       {/if}
       <span class="grow"></span>
       <button type="button" class="ghost" onclick={onClose} disabled={step === 'installing'}>
-        {info?.available && step === 'result' ? 'Later' : 'Close'}
+        {info?.available && step === 'result' ? t('Later') : t('Close')}
       </button>
       {#if step === 'result' && info?.available}
         {#if info.canInstall}
-          <button type="button" class="primary" onclick={update}>Update now</button>
+          <button type="button" class="primary" onclick={update}>{t("Update now")}</button>
         {:else}
-          <button type="button" class="primary" onclick={() => openUrl(RELEASES_URL)}>Open download page</button>
+          <button type="button" class="primary" onclick={() => openUrl(RELEASES_URL)}>{t("Open download page")}</button>
         {/if}
       {/if}
     </div>

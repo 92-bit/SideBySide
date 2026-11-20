@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '#lib/i18n.svelte.ts';
   // Shows two files side by side. Only the rows on screen are ever loaded,
   // so this works the same for a 10-line file and a 10-million-line file.
   import { onMount, tick } from 'svelte';
@@ -529,9 +530,9 @@
 <div class="view" class:inline class:wrap bind:clientHeight={height} bind:clientWidth={width} style:--fs="{fontSize}px" style:--rh="{rowH}px" style:--lnw="{lnW}px">
   <!-- The rows area is focusable so the arrow keys and Page Up/Down can scroll it. -->
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-  <div class="rows" id="rows" bind:this={viewport} tabindex="0" role="region" aria-label="Differences">
+  <div class="rows" id="rows" bind:this={viewport} tabindex="0" role="region" aria-label={t("Differences")}>
     {#if total === 0}
-      <p class="empty">Both files are empty.</p>
+      <p class="empty">{t("Both files are empty.")}</p>
     {/if}
     {#each rows as row, i (rowsTop + i)}
       {@const r = rowsTop + i}
@@ -540,26 +541,26 @@
       {@const moveStart = (row.k === 5 || row.k === 6) && (i === 0 || rows[i - 1].k !== row.k)}
       {#if row.k === 4}
         <div class="row k4">
-          <button type="button" class="fold" onclick={() => onOpenFold?.(r)} title="Show these lines">
-            <span class="dots" aria-hidden="true">⋯</span>{fmtNum(row.f ?? 0)} unchanged {row.f === 1 ? 'line' : 'lines'}<span class="show">Show</span>
+          <button type="button" class="fold" onclick={() => onOpenFold?.(r)} title={t("Show these lines")}>
+            <span class="dots" aria-hidden="true">⋯</span>{row.f === 1 ? t('1 unchanged line') : t('{n} unchanged lines', { n: fmtNum(row.f ?? 0) })}<span class="show">{t("Show")}</span>
           </button>
         </div>
       {:else if inline}
         {@const m = inlineOf(row)}
         <div class="row il k{row.k}" class:bm={marked.has(r)} class:cur={current !== null && r >= current.row && r < current.row + current.rows} class:found={flashRow === r}>
-          <button type="button" class="ln" tabindex="-1" title="{marked.has(r) ? 'Remove the bookmark' : 'Bookmark this line (Ctrl+B)'}" onclick={() => toggleMark(r)}>{row.l ? row.l.n : ''}</button>
-          <button type="button" class="ln r" tabindex="-1" title="{marked.has(r) ? 'Remove the bookmark' : 'Bookmark this line (Ctrl+B)'}" onclick={() => toggleMark(r)}>{row.r ? row.r.n : ''}</button>
+          <button type="button" class="ln" tabindex="-1" title={marked.has(r) ? t('Remove the bookmark') : t('Bookmark this line (Ctrl+B)')} onclick={() => toggleMark(r)}>{row.l ? row.l.n : ''}</button>
+          <button type="button" class="ln r" tabindex="-1" title={marked.has(r) ? t('Remove the bookmark') : t('Bookmark this line (Ctrl+B)')} onclick={() => toggleMark(r)}>{row.r ? row.r.n : ''}</button>
           <span class="sign" aria-hidden="true">{row.k === 2 ? '+' : row.k === 3 ? '−' : row.k === 1 ? '±' : row.k === 5 ? '↗' : row.k === 6 ? '↘' : ''}</span>
           <span class="tx">{#if m}<span class="in" style:transform="translateX({-scrollX}px)">{@render inlineText(m, row.r ? langR : langL)}</span>{/if}</span>
         </div>
       {:else}
       <div class="row k{row.k}" class:bm={marked.has(r)} class:cur={current !== null && r >= current.row && r < current.row + current.rows} class:found={flashRow === r}>
-        <button type="button" class="ln" tabindex="-1" title="{marked.has(r) ? 'Remove the bookmark' : 'Bookmark this line (Ctrl+B)'}" onclick={() => toggleMark(r)}>{row.l ? row.l.n : ''}</button>
-        <span class="tx" class:fill={!row.l} ondblclick={() => row.l && startEdit(r, true, row.l)} role="presentation">{#if editing && editing.row === r && editing.left}<input class="lineedit" bind:value={editing.text} use:focusOnMount onkeydown={(e) => { e.stopPropagation(); if (e.key === 'Enter') finishEdit(true); else if (e.key === 'Escape') finishEdit(false); }} onblur={() => finishEdit(false)} aria-label="Edit line {row.l?.n}" />{:else if row.l}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.l, langL)}</span>{:else if row.k === 6 && moveStart && row.m}<button type="button" class="moved-to" onclick={() => onGotoLine?.(true, row.m ?? 1)}>↖ moved here from line {fmtNum(row.m)}</button>{/if}</span>
+        <button type="button" class="ln" tabindex="-1" title={marked.has(r) ? t('Remove the bookmark') : t('Bookmark this line (Ctrl+B)')} onclick={() => toggleMark(r)}>{row.l ? row.l.n : ''}</button>
+        <span class="tx" class:fill={!row.l} ondblclick={() => row.l && startEdit(r, true, row.l)} role="presentation">{#if editing && editing.row === r && editing.left}<input class="lineedit" bind:value={editing.text} use:focusOnMount onkeydown={(e) => { e.stopPropagation(); if (e.key === 'Enter') finishEdit(true); else if (e.key === 'Escape') finishEdit(false); }} onblur={() => finishEdit(false)} aria-label="Edit line {row.l?.n}" />{:else if row.l}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.l, langL)}</span>{:else if row.k === 6 && moveStart && row.m}<button type="button" class="moved-to" onclick={() => onGotoLine?.(true, row.m ?? 1)}>{t('↖ moved here from line {n}', { n: fmtNum(row.m) })}</button>{/if}</span>
         <span class="seam">
           {#if starts && isCur && onCopy && (canEdit.left || canEdit.right)}
             <!-- Merge: copy the current difference to the other side. -->
-            <button type="button" class="mg" tabindex="-1" disabled={!canEdit.left} onclick={() => onCopy?.(r, true)} title="Copy to the left: make the original match the new version here" aria-label="Copy to the left">←</button>
+            <button type="button" class="mg" tabindex="-1" disabled={!canEdit.left} onclick={() => onCopy?.(r, true)} title={t("Copy to the left: make the original match the new version here")} aria-label={t("Copy to the left")}>←</button>
           {/if}
           {#if starts}
             <button
@@ -567,16 +568,16 @@
               class="pin p{row.k}"
               class:on={isCur}
               tabindex="-1"
-              title={isCur ? `Difference ${(current?.index ?? 0) + 1}` : 'Go to this difference'}
+              title={isCur ? t('Difference {n}', { n: (current?.index ?? 0) + 1 }) : t('Go to this difference')}
               onclick={() => goToRow(r)}
             >{isCur ? (current?.index ?? 0) + 1 : ''}</button>
           {/if}
           {#if starts && isCur && onCopy && (canEdit.left || canEdit.right)}
-            <button type="button" class="mg" tabindex="-1" disabled={!canEdit.right} onclick={() => onCopy?.(r, false)} title="Copy to the right: make the new version match the original here" aria-label="Copy to the right">→</button>
+            <button type="button" class="mg" tabindex="-1" disabled={!canEdit.right} onclick={() => onCopy?.(r, false)} title={t("Copy to the right: make the new version match the original here")} aria-label={t("Copy to the right")}>→</button>
           {/if}
         </span>
-        <button type="button" class="ln r" tabindex="-1" title="{marked.has(r) ? 'Remove the bookmark' : 'Bookmark this line (Ctrl+B)'}" onclick={() => toggleMark(r)}>{row.r ? row.r.n : ''}</button>
-        <span class="tx" class:fill={!row.r} ondblclick={() => row.r && startEdit(r, false, row.r)} role="presentation">{#if editing && editing.row === r && !editing.left}<input class="lineedit" bind:value={editing.text} use:focusOnMount onkeydown={(e) => { e.stopPropagation(); if (e.key === 'Enter') finishEdit(true); else if (e.key === 'Escape') finishEdit(false); }} onblur={() => finishEdit(false)} aria-label="Edit line {row.r?.n}" />{:else if row.r}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.r, langR)}</span>{:else if row.k === 5 && moveStart && row.m}<button type="button" class="moved-to" onclick={() => onGotoLine?.(false, row.m ?? 1)}>moved to line {fmtNum(row.m)} ↘</button>{/if}</span>
+        <button type="button" class="ln r" tabindex="-1" title={marked.has(r) ? t('Remove the bookmark') : t('Bookmark this line (Ctrl+B)')} onclick={() => toggleMark(r)}>{row.r ? row.r.n : ''}</button>
+        <span class="tx" class:fill={!row.r} ondblclick={() => row.r && startEdit(r, false, row.r)} role="presentation">{#if editing && editing.row === r && !editing.left}<input class="lineedit" bind:value={editing.text} use:focusOnMount onkeydown={(e) => { e.stopPropagation(); if (e.key === 'Enter') finishEdit(true); else if (e.key === 'Escape') finishEdit(false); }} onblur={() => finishEdit(false)} aria-label="Edit line {row.r?.n}" />{:else if row.r}<span class="in" style:transform="translateX({-scrollX}px)">{@render cellText(row.r, langR)}</span>{:else if row.k === 5 && moveStart && row.m}<button type="button" class="moved-to" onclick={() => onGotoLine?.(false, row.m ?? 1)}>{t('moved to line {n} ↘', { n: fmtNum(row.m) })}</button>{/if}</span>
       </div>
       {/if}
     {/each}

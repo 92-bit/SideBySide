@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { LANGS, lang, setLang, t, type Lang } from '#lib/i18n.svelte.ts';
   // The theme picker: Dark / Light / Match Windows, and the colour themes with a small preview each.
   import { THEMES, type Palette } from '#lib/themes.ts';
   import { shadeOf, type Look, type Mode } from '#lib/theme.ts';
@@ -54,54 +55,54 @@
 <div
   class="panel"
   role="dialog"
-  aria-label="Theme"
+  aria-label={t("Theme")}
   tabindex="-1"
   bind:this={panel}
   onkeydown={onKey}
   use:trapFocus={{ onEscape: onClose }}
 >
   <div class="head">
-    <h3>Theme</h3>
-    <div class="modes" role="group" aria-label="Light or dark">
+    <h3>{t("Theme")}</h3>
+    <div class="modes" role="group" aria-label={t("Light or dark")}>
       {#each modes as m (m.id)}
         <button type="button" aria-pressed={look.mode === m.id} onclick={(e) => onPick({ ...look, mode: m.id }, at(e))}>
-          {m.label}
+          {t(m.label)}
         </button>
       {/each}
     </div>
   </div>
   <div class="grid">
-    {#each THEMES as t (t.id)}
+    {#each THEMES as th (th.id)}
       <button
         type="button"
         class="pt"
-        aria-pressed={look.theme === t.id}
-        title={t.blurb}
-        onclick={(e) => onPick({ ...look, theme: t.id }, at(e))}
+        aria-pressed={look.theme === th.id}
+        title={t(th.blurb)}
+        onclick={(e) => onPick({ ...look, theme: th.id }, at(e))}
       >
-        <span class="sw" style={vars(t[shade])} aria-hidden="true">
+        <span class="sw" style={vars(th[shade])} aria-hidden="true">
           <i><u></u><u class="c"></u><u class="d"></u><u></u></i>
           <i><u></u><u class="c"></u><u class="a"></u><u></u></i>
           <s></s>
         </span>
-        <span class="name">{t.name}</span>
+        <span class="name">{th.name}</span>
       </button>
     {/each}
   </div>
   <div class="text">
-    <h3>Text in the files</h3>
-    <div class="fonts" role="group" aria-label="Font">
+    <h3>{t("Text in the files")}</h3>
+    <div class="fonts" role="group" aria-label={t("Font")}>
       {#each CODE_FONTS as f (f.id)}
-        <button type="button" class="fo" aria-pressed={prefs.codeFont === f.id} title="{f.name} ({f.note})" onclick={() => setCodeFont(f.id)}>
+        <button type="button" class="fo" aria-pressed={prefs.codeFont === f.id} title="{f.name} ({t(f.note)})" onclick={() => setCodeFont(f.id)}>
           <span class="sample" style:font-family={f.css} aria-hidden="true">{'{a: 0O}'}</span>
           <span class="fn">{f.name}</span>
         </button>
       {/each}
     </div>
     <div class="row">
-      <span class="lbl" id="size-lbl">Size</span>
+      <span class="lbl" id="size-lbl">{t("Size")}</span>
       <div class="size">
-        <button type="button" class="step" aria-label="Smaller text" disabled={prefs.fontSize <= FONT_MIN} onclick={() => setFontSize(prefs.fontSize - 1)}>−</button>
+        <button type="button" class="step" aria-label={t("Smaller text")} disabled={prefs.fontSize <= FONT_MIN} onclick={() => setFontSize(prefs.fontSize - 1)}>−</button>
         <input
           type="range"
           min={FONT_MIN}
@@ -112,25 +113,33 @@
           aria-valuetext="{prefs.fontSize} pixels"
           oninput={(e) => setFontSize(Number(e.currentTarget.value))}
         />
-        <button type="button" class="step" aria-label="Bigger text" disabled={prefs.fontSize >= FONT_MAX} onclick={() => setFontSize(prefs.fontSize + 1)}>+</button>
-        <button type="button" class="val" title="Back to the normal size" onclick={() => setFontSize(FONT_DEFAULT)}>{Math.round((prefs.fontSize / FONT_DEFAULT) * 100)}%</button>
+        <button type="button" class="step" aria-label={t("Bigger text")} disabled={prefs.fontSize >= FONT_MAX} onclick={() => setFontSize(prefs.fontSize + 1)}>+</button>
+        <button type="button" class="val" title={t("Back to the normal size")} onclick={() => setFontSize(FONT_DEFAULT)}>{Math.round((prefs.fontSize / FONT_DEFAULT) * 100)}%</button>
       </div>
     </div>
     <div class="row">
-      <span class="lbl">Long lines</span>
-      <div class="modes" role="group" aria-label="Long lines">
-        <button type="button" aria-pressed={!prefs.wrap} onclick={() => setWrap(false)}>Scroll sideways</button>
-        <button type="button" aria-pressed={prefs.wrap} onclick={() => setWrap(true)}>Wrap</button>
+      <span class="lbl">{t("Long lines")}</span>
+      <div class="modes" role="group" aria-label={t("Long lines")}>
+        <button type="button" aria-pressed={!prefs.wrap} onclick={() => setWrap(false)}>{t("Scroll sideways")}</button>
+        <button type="button" aria-pressed={prefs.wrap} onclick={() => setWrap(true)}>{t("Wrap")}</button>
       </div>
     </div>
     <div class="row">
-      <span class="lbl">Line spacing</span>
-      <div class="modes" role="group" aria-label="Line spacing">
+      <span class="lbl">{t("Line spacing")}</span>
+      <div class="modes" role="group" aria-label={t("Line spacing")}>
         {#each SPACINGS as sp (sp.id)}
-          <button type="button" aria-pressed={prefs.spacing === sp.id} onclick={() => setSpacing(sp.id)}>{sp.name}</button>
+          <button type="button" aria-pressed={prefs.spacing === sp.id} onclick={() => setSpacing(sp.id)}>{t(sp.name)}</button>
         {/each}
       </div>
     </div>
+  </div>
+  <div class="row langrow">
+    <span class="lbl">{t('Language')}</span>
+    <select value={lang.id} onchange={(e) => setLang(e.currentTarget.value as Lang)} aria-label={t('Language')}>
+      {#each LANGS as l (l.id)}
+        <option value={l.id}>{l.name}</option>
+      {/each}
+    </select>
   </div>
   <div class="foot">
     <button
@@ -141,9 +150,9 @@
       onclick={() => setCodeColors(!prefs.codeColors)}
     >
       <span class="knob" aria-hidden="true"></span>
-      Colour code in code files
+      {t("Colour code in code files")}
     </button>
-    <span class="saved">Saved for next time</span>
+    <span class="saved">{t("Saved for next time")}</span>
   </div>
 </div>
 
@@ -477,6 +486,21 @@
   }
   .sw-row:active .knob::after {
     width: 14px;
+  }
+  .langrow {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--t-line);
+  }
+  .langrow select {
+    height: 26px;
+    padding: 0 8px;
+    border-radius: 7px;
+    border: 1px solid var(--t-line2);
+    background: var(--t-card);
+    color: var(--t-strong);
+    font: inherit;
+    font-size: 12.5px;
   }
   .saved {
     white-space: nowrap;

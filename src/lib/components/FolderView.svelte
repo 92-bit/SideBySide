@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '#lib/i18n.svelte.ts';
   // The result of comparing two folders: every file, with filters, and a click to compare a pair.
   // Only the rows on screen are drawn, so folders with many thousands of files stay quick.
   import { fmtNum, fmtSize, type FolderEntry, type FolderResult } from '#lib/api.ts';
@@ -25,26 +26,26 @@
   const first = $derived(Math.max(0, Math.floor(scrollTop / ROW) - 5));
   const last = $derived(Math.min(shown.length, Math.ceil((scrollTop + height) / ROW) + 5));
 
-  const KIND = ['The same', 'Different', 'Only in the first folder', 'Only in the second folder'];
+  const KIND = $derived([t('The same'), t('Different'), t('Only in the first folder'), t('Only in the second folder')]);
   const folderName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
   const chips = $derived<{ f: Filter; label: string; n: number }[]>([
-    { f: 'changes', label: 'All changes', n: result.different + result.onlyLeft + result.onlyRight },
-    { f: 1, label: 'Different', n: result.different },
-    { f: 2, label: `Only in ${folderName(result.left)}`, n: result.onlyLeft },
-    { f: 3, label: `Only in ${folderName(result.right)}`, n: result.onlyRight },
-    { f: 0, label: 'The same', n: result.same },
-    { f: 'all', label: 'Everything', n: result.entries.length },
+    { f: 'changes', label: t('All changes'), n: result.different + result.onlyLeft + result.onlyRight },
+    { f: 1, label: t('Different'), n: result.different },
+    { f: 2, label: t('Only in {folder}', { folder: folderName(result.left) }), n: result.onlyLeft },
+    { f: 3, label: t('Only in {folder}', { folder: folderName(result.right) }), n: result.onlyRight },
+    { f: 0, label: t('The same'), n: result.same },
+    { f: 'all', label: t('Everything'), n: result.entries.length },
   ]);
 </script>
 
 <section class="folders">
   <header>
     <div class="names">
-      <span class="tag old">OLD</span><b title={result.left}>{folderName(result.left)}</b>
-      <span class="vs">vs</span>
-      <span class="tag new">NEW</span><b title={result.right}>{folderName(result.right)}</b>
+      <span class="tag old">{t("OLD")}</span><b title={result.left}>{folderName(result.left)}</b>
+      <span class="vs">{t("vs")}</span>
+      <span class="tag new">{t("NEW")}</span><b title={result.right}>{folderName(result.right)}</b>
     </div>
-    <div class="chips" role="group" aria-label="Show">
+    <div class="chips" role="group" aria-label={t("Show")}>
       {#each chips as c (c.f)}
         <button type="button" class="chip k{c.f}" aria-pressed={filter === c.f} onclick={() => ((filter = c.f), box && (box.scrollTop = 0))}>
           {c.label} <span class="n">{fmtNum(c.n)}</span>
@@ -54,13 +55,13 @@
   </header>
 
   {#if shown.length === 0}
-    <p class="none">{filter === 'changes' ? '✓ The folders are the same: every file matches.' : 'No files here.'}</p>
+    <p class="none">{filter === 'changes' ? t('✓ The folders are the same: every file matches.') : t('No files here.')}</p>
   {:else}
     <div class="list" bind:this={box} bind:clientHeight={height} onscroll={() => (scrollTop = box?.scrollTop ?? 0)} role="list">
       <div class="inner" style:height="{shown.length * ROW}px">
         {#each shown.slice(first, last) as e, i (e.path)}
           <div class="row" role="listitem" style:transform="translateY({(first + i) * ROW}px)">
-            <button type="button" class="file" disabled={e.kind !== 1} onclick={() => onOpen(e)} title={e.kind === 1 ? 'Compare this file side by side' : KIND[e.kind]}>
+            <button type="button" class="file" disabled={e.kind !== 1} onclick={() => onOpen(e)} title={e.kind === 1 ? t('Compare this file side by side') : KIND[e.kind]}>
               <span class="dot k{e.kind}" aria-label={KIND[e.kind]}></span>
               <span class="path">{e.path}</span>
               <span class="what">{KIND[e.kind]}</span>
