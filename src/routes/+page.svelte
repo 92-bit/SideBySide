@@ -505,31 +505,45 @@
           <PastePanel {error} onCompare={comparePasted} onBack={() => (pasteMode = false)} />
         {:else}
           <section class="empty">
-            <div class="slots">
-              {#each ['left', 'right'] as const as side (side)}
-                <div class="slot" class:drop={dropSide === side} class:filled={!!paths[side]}>
-                  <span class="tag" class:old={side === 'left'} class:new={side === 'right'}>{side === 'left' ? 'Original' : 'New'}</span>
-                  <svg class="doc" viewBox="0 0 24 24" width="40" height="40"><path d="M6 2.5h8l4.5 4.5v14.5H6z" /><path d="M14 2.5V7h4.5" /></svg>
+            <div class="hello rise" style:--i={0}>
+              <h2>What should we compare?</h2>
+              <p>Drop two files anywhere, or choose them below. The comparison starts as soon as both are there.</p>
+            </div>
+            <div class="slots rise" style:--i={1}>
+              {#each ['left', 'right'] as const as side, n (side)}
+                {#if n === 1}<span class="vs" aria-hidden="true">vs</span>{/if}
+                <button
+                  type="button"
+                  class="slot"
+                  class:old={side === 'left'}
+                  class:new={side === 'right'}
+                  class:drop={dropSide === side}
+                  class:filled={!!paths[side]}
+                  onclick={() => choose(side)}
+                  title={paths[side] ?? (side === 'left' ? 'Choose the original file' : 'Choose the new file')}
+                >
+                  <svg class="ant" aria-hidden="true"><rect x="1" y="1" rx="11" /></svg>
+                  <span class="big" aria-hidden="true">{side === 'left' ? 'OLD' : 'NEW'}</span>
                   {#if paths[side]}
-                    <p class="chosen" title={paths[side]}>{fileName(paths[side] ?? '')}</p>
+                    <b>{fileName(paths[side] ?? '')}</b>
+                    <small>Click to choose another</small>
                   {:else}
-                    <p>Drop a file here</p>
+                    <b>{side === 'left' ? 'Choose the original' : 'Choose the new version'}</b>
+                    <small>or drop a file here</small>
                   {/if}
-                  <button type="button" class="choose" onclick={() => choose(side)}>{paths[side] ? 'Change…' : 'Choose file…'}</button>
-                </div>
+                </button>
               {/each}
             </div>
             {#if error}
               <p class="error" role="alert">{error}</p>
             {/if}
-            <p class="hint">
-              Tip: drop two files at once to compare them straight away, or
-              <button type="button" class="link" onclick={() => (pasteMode = true)}>paste text instead</button>.
+            <p class="orp rise" style:--i={2}>
+              No files? <button type="button" class="link" onclick={() => (pasteMode = true)}>Paste text instead</button>
             </p>
             {#if recent.length}
-              <div class="recent-home">
+              <div class="recent-home rise" style:--i={3}>
                 <h2>Recent</h2>
-                <RecentList items={recent} limit={5} onOpen={openRecent} onRemove={(r) => (recent = removeRecent(r))} />
+                <RecentList items={recent} limit={6} cards onOpen={openRecent} onRemove={(r) => (recent = removeRecent(r))} />
               </div>
             {/if}
           </section>
@@ -538,8 +552,18 @@
         {#if busy && showBusy}
           <div class="busy" role="status">
             <div class="busy-card">
-              <span>{pct < 800 ? 'Reading files…' : 'Matching lines…'} <b>{Math.floor(pct / 10)}%</b></span>
-              <span class="bar"><span style:width="{pct / 10}%"></span></span>
+              <div class="scan" aria-hidden="true">
+                {#each [[80, 60, 90, 40, 70, 55], [75, 65, 88, 45, 72, 50]] as widths, n (n)}
+                  <div class="sheet" class:b={n === 1}>
+                    {#each widths as w, j (j)}<i style:width="{w}%"></i>{/each}
+                  </div>
+                {/each}
+              </div>
+              <span class="pbar" aria-hidden="true"><i style:transform="scaleX({pct / 1000})"></i></span>
+              <span class="busytxt">
+                <span>{pct < 800 ? 'Reading both files…' : 'Matching lines…'}</span>
+                <b>{Math.floor(pct / 10)}%</b>
+              </span>
               <button type="button" class="cancel" onclick={() => cancel()}>Cancel</button>
             </div>
           </div>
@@ -606,24 +630,36 @@
     min-height: 0;
   }
 
-
-  /* Recent panel */
+  /* Recent panel (opened from the clock in the top bar) */
   .panel {
-    width: 270px;
+    width: 280px;
     flex: none;
-    background: var(--bg-chrome);
-    border-right: 1px solid var(--border);
+    margin: 4px 0 12px 14px;
     padding: 12px 8px;
     overflow-y: auto;
+    background: var(--t-card2);
+    border: 1px solid var(--t-line);
+    border-radius: 14px;
+    animation: panel-in 0.22s cubic-bezier(0.23, 1, 0.32, 1);
   }
-  .panel h2,
-  .recent-home h2 {
+  @keyframes panel-in {
+    from {
+      opacity: 0;
+      transform: translateX(-8px);
+    }
+  }
+  .panel h2 {
     margin: 0 8px 8px;
     font-size: 11px;
     font-weight: 600;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--muted);
+    color: var(--t-faint);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .panel {
+      animation: none;
+    }
   }
 
   .main {
@@ -1025,96 +1061,170 @@
     stroke-linejoin: round;
   }
 
-  /* Empty start screen */
+  /* Start screen */
   .empty {
     flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    gap: 18px;
-    padding: 32px;
+    gap: 22px;
+    padding: 32px 24px;
     overflow-y: auto;
+  }
+  /* Centre the content when it fits, scroll from the top when it doesn't. */
+  .empty > :first-child {
+    margin-top: auto;
+  }
+  .empty > :last-child {
+    margin-bottom: auto;
+  }
+  .hello {
+    text-align: center;
+  }
+  .hello h2 {
+    margin: 0;
+    font-size: 28px;
+    font-weight: 650;
+    letter-spacing: -0.03em;
+    color: var(--t-strong);
+    text-wrap: balance;
+  }
+  .hello p {
+    margin: 6px auto 0;
+    max-width: 52ch;
+    color: var(--t-muted);
+    font-size: 13.5px;
+    text-wrap: pretty;
   }
   .slots {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
-    width: min(760px, 100%);
+    grid-template-columns: 1fr 44px 1fr;
+    align-items: center;
+    width: min(680px, 100%);
+  }
+  .vs {
+    text-align: center;
+    color: var(--t-faint);
+    font-size: 12px;
+    font-weight: 600;
   }
   .slot {
     position: relative;
+    min-width: 0;
+    height: 170px;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 10px;
-    padding: 44px 20px 32px;
-    border: 2px dashed var(--border-2);
-    border-radius: 12px;
-    background: var(--bg-raised);
+    justify-content: center;
+    gap: 8px;
+    padding: 0 20px;
+    border-radius: 18px;
+    background: var(--t-card);
+    border: 1px solid var(--t-line);
+    color: var(--t-fg);
+    font: inherit;
+    cursor: pointer;
     transition:
-      border-color 0.15s ease,
-      background 0.15s ease;
-    min-width: 0;
-  }
-  .slot .tag {
-    position: absolute;
-    top: 12px;
-    left: 12px;
+      transform 0.2s cubic-bezier(0.23, 1, 0.32, 1),
+      border-color 0.2s ease,
+      background-color 0.2s ease;
   }
   .slot:hover {
-    border-color: var(--accent-border);
+    background: var(--t-card2);
+    border-color: var(--t-line2);
+  }
+  .slot:active {
+    transform: scale(0.985);
   }
   .slot.drop {
-    border-color: var(--accent);
-    background: var(--accent-bg);
+    background: var(--t-acc-bg);
+    border-color: var(--t-acc);
   }
   .slot.filled {
-    border-style: solid;
+    border-color: color-mix(in srgb, var(--t-acc) 45%, transparent);
   }
-  .slot p {
-    margin: 0;
-    color: var(--muted);
+  /* The dashed edge inside the card; it moves while you point at it or drag a file over it. */
+  .ant {
+    position: absolute;
+    inset: 8px;
+    width: calc(100% - 16px);
+    height: calc(100% - 16px);
+    pointer-events: none;
+    overflow: visible;
+  }
+  .ant rect {
+    width: calc(100% - 2px);
+    height: calc(100% - 2px);
+    fill: none;
+    stroke: var(--t-faint);
+    stroke-width: 1.4;
+    stroke-dasharray: 6 6;
+    opacity: 0.7;
+    animation: march 1s linear infinite paused;
+    transition: stroke 0.2s ease;
+  }
+  .slot:hover .ant rect,
+  .slot.drop .ant rect {
+    stroke: var(--t-acc);
+    animation-play-state: running;
+  }
+  .slot.filled .ant {
+    opacity: 0;
+  }
+  @keyframes march {
+    to {
+      stroke-dashoffset: -12;
+    }
+  }
+  .big {
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .slot.old .big {
+    background: var(--t-del);
+    color: var(--t-del-s);
+  }
+  .slot.new .big {
+    background: var(--t-add);
+    color: var(--t-add-s);
+  }
+  .slot b,
+  .slot small {
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .slot p.chosen {
-    color: var(--fg-strong);
+  .slot b {
+    color: var(--t-strong);
+    font-size: 14px;
     font-weight: 600;
   }
-  .doc {
-    fill: none;
-    stroke: var(--faint);
-    stroke-width: 1.3;
-    stroke-linejoin: round;
-  }
-  .choose {
-    background: var(--accent-bg);
-    border: 1px solid var(--accent-border);
-    color: var(--accent-fg);
-    padding: 6px 14px;
-    border-radius: 6px;
-    cursor: pointer;
-  }
-  .choose:hover {
-    filter: brightness(1.1);
-  }
-  .hint {
-    margin: 0;
+  .slot small {
+    color: var(--t-muted);
     font-size: 12px;
-    color: var(--faint);
-    text-align: center;
+  }
+  .orp {
+    margin: -6px 0 0;
+    color: var(--t-muted);
+    font-size: 13px;
   }
   .link {
     font: inherit;
     background: none;
     border: 0;
     padding: 0;
-    color: var(--accent);
+    color: var(--t-acc);
+    border-bottom: 1px solid color-mix(in srgb, var(--t-acc) 40%, transparent);
     cursor: pointer;
-    text-decoration: underline;
+  }
+  .link:hover {
+    border-bottom-color: var(--t-acc);
   }
   .error {
     margin: 0;
@@ -1124,57 +1234,167 @@
     max-width: 640px;
   }
   .recent-home {
-    width: min(760px, 100%);
-    margin-top: 6px;
+    width: min(680px, 100%);
+  }
+  .recent-home h2 {
+    margin: 0 0 8px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--t-faint);
+  }
+  /* Opening the start screen: its parts rise in one after another. */
+  .rise {
+    animation: rise 0.45s cubic-bezier(0.23, 1, 0.32, 1) both;
+    animation-delay: calc(var(--i, 0) * 55ms);
+  }
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
   }
 
-  /* Progress box */
+  /* Comparing (shown only if it takes more than a moment) */
   .busy {
     position: absolute;
     inset: 0;
+    z-index: 10;
     display: grid;
     place-items: center;
-    background: color-mix(in srgb, var(--bg) 55%, transparent);
+    background: color-mix(in srgb, var(--t-bg) 55%, transparent);
+    backdrop-filter: blur(3px);
+    animation: fade 0.2s ease both;
+  }
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
   }
   .busy-card {
+    width: min(420px, calc(100% - 32px));
     display: flex;
     flex-direction: column;
-    gap: 12px;
     align-items: center;
-    padding: 18px 28px;
-    border-radius: 10px;
-    background: var(--bg-raised);
-    border: 1px solid var(--border-2);
-    color: var(--fg-strong);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
-    font-variant-numeric: tabular-nums;
+    gap: 16px;
+    padding: 24px;
+    border-radius: 18px;
+    background: var(--t-card2);
+    border: 1px solid var(--t-line2);
+    box-shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.5);
+    animation: rise 0.35s cubic-bezier(0.23, 1, 0.32, 1) both;
   }
-  .bar {
-    width: 220px;
+  .scan {
+    display: flex;
+    gap: 12px;
+  }
+  /* Two little pages with a light passing over them. */
+  .sheet {
+    position: relative;
+    width: 120px;
+    height: 84px;
+    overflow: hidden;
+    padding: 12px;
+    border-radius: 10px;
+    background: var(--t-card);
+    border: 1px solid var(--t-line);
+  }
+  .sheet i {
+    display: block;
+    height: 5px;
+    margin-bottom: 7px;
+    border-radius: 3px;
+    background: var(--t-line2);
+  }
+  .sheet::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -36px;
+    height: 36px;
+    background: linear-gradient(180deg, transparent, var(--t-acc-bg) 70%, color-mix(in srgb, var(--t-acc) 70%, transparent));
+    animation: scan 1.1s cubic-bezier(0.77, 0, 0.175, 1) infinite;
+  }
+  .sheet.b::after {
+    animation-delay: 0.18s;
+    background: linear-gradient(
+      180deg,
+      transparent,
+      color-mix(in srgb, var(--t-acc2) 12%, transparent) 70%,
+      color-mix(in srgb, var(--t-acc2) 70%, transparent)
+    );
+  }
+  @keyframes scan {
+    to {
+      transform: translateY(120px);
+    }
+  }
+  .pbar {
+    width: 100%;
     height: 6px;
     border-radius: 3px;
-    background: var(--border-2);
+    background: var(--t-line);
     overflow: hidden;
   }
-  .bar span {
+  .pbar i {
     display: block;
     height: 100%;
-    background: var(--accent);
-    border-radius: 3px;
-    transition: width 0.12s linear;
+    transform-origin: 0 50%;
+    background: linear-gradient(90deg, var(--t-acc), var(--t-acc2));
+    transition: transform 0.12s linear;
+  }
+  .busytxt {
+    width: 100%;
+    margin-top: -8px;
+    display: flex;
+    justify-content: space-between;
+    color: var(--t-muted);
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .busytxt b {
+    color: var(--t-strong);
+    font-weight: 600;
   }
   .cancel {
     font: inherit;
-    font-size: 12px;
+    font-size: 12.5px;
+    height: 32px;
+    padding: 0 18px;
     background: none;
-    border: 1px solid var(--border-2);
-    color: var(--fg);
-    border-radius: 5px;
-    padding: 4px 16px;
+    border: 1px solid var(--t-line2);
+    border-radius: 10px;
+    color: var(--t-fg);
     cursor: pointer;
+    transition:
+      background-color 0.15s ease,
+      transform 0.16s cubic-bezier(0.23, 1, 0.32, 1);
   }
   .cancel:hover {
-    background: var(--hover);
+    background: var(--t-line);
+  }
+  .cancel:active {
+    transform: scale(0.96);
+  }
+  @media (max-width: 620px) {
+    .slots {
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+    .vs {
+      display: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rise,
+    .busy,
+    .busy-card,
+    .sheet::after,
+    .ant rect {
+      animation: none;
+    }
   }
 
   /* Status bar */
