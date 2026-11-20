@@ -359,6 +359,52 @@ fn save_clipboard_text(text: String) -> Result<String, String> {
     Ok(p.to_string_lossy().into_owned())
 }
 
+/// Download a file from a web link (http or https only) to the temporary folder, to compare it.
+/// Each download gets its own folder, so two versions of "app.ts" don't overwrite each other.
+#[tauri::command]
+async fn fetch_url(url: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || download(url.trim())).await.map_err(|e| e.to_string())?
+}
+
+static DOWNLOADS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// Biggest file that is downloaded.
+const DOWNLOAD_MAX: u64 = 512 << 20;
+
+fn download(url: &str) -> Result<String, String> {
+    use std::io::Read;
+    let lower = url.to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        return Err("Only web links that start with http:// or https:// can be opened.".into());
+    }
+    let agent = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(60)).user_agent("SideBySide").build();
+    let resp = agent.get(url).call().map_err(|e| match e {
+        ureq::Error::Status(code, _) => format!("The website answered with an error ({code}). Is the link right?"),
+        e => format!("Couldn't download it. Are you online? ({e})"),
+    })?;
+    // The file name: the last part of the link (without ?… or #…), made safe for Windows.
+    let path_part = url.split(['?', '#']).next().unwrap_or(url);
+    let name: String = path_part
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or("")
+        .chars()
+        .map(|c| if r#"\/:*?"<>|"#.contains(c) || c.is_control() { '_' } else { c })
+        .collect();
+    let name = if name.is_empty() || name.contains("://") { "page.txt".to_string() } else { name };
+    let n = DOWNLOADS.fetch_add(1, Ordering::SeqCst);
+    let dir = std::env::temp_dir().join("SideBySide").join(format!("web-{}-{n}", std::process::id()));
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let target = dir.join(name);
+    let mut body = Vec::new();
+    resp.into_reader().take(DOWNLOAD_MAX + 1).read_to_end(&mut body).map_err(|e| format!("The download stopped: {e}"))?;
+    if body.len() as u64 > DOWNLOAD_MAX {
+        return Err("That file is bigger than 512 MB, too big to download here. Save it first, then open it.".into());
+    }
+    std::fs::write(&target, body).map_err(|e| e.to_string())?;
+    Ok(target.to_string_lossy().into_owned())
+}
+
 /// Files given to the app (e.g. `sidebyside.exe old.txt new.txt`, or from the right-click menu)
 /// that the screen hasn't picked up yet.
 #[tauri::command]
@@ -480,6 +526,7 @@ pub fn run() {
             make_patch,
             git_setup,
             save_clipboard_text,
+            fetch_url,
             row_for_line,
             find,
             close_compare,

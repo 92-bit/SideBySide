@@ -108,6 +108,8 @@ export interface GitSetup {
 }
 /** apply = false: only look; true: change Git's settings (git config --global). */
 export const gitSetup = (apply: boolean) => invoke<GitSetup>('git_setup', { apply });
+/** Download a file from a web link (http/https) to a temporary file; returns its path. */
+export const fetchUrl = (url: string) => invoke<string>('fetch_url', { url });
 /** Save copied text to a temporary file (to compare it); returns its path. */
 export const saveClipboardText = (text: string) => invoke<string>('save_clipboard_text', { text });
 /** The differences as a patch (unified diff text). */

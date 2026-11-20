@@ -333,7 +333,7 @@
     color: #fff;
   }
   /* Narrow window: keep just the logo, so the island has room. */
-  @container bar (max-width: 1000px) {
+  @container bar (max-width: 1280px) {
     .name {
       display: none;
     }

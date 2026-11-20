@@ -15,6 +15,7 @@
   import RulesPanel from '#lib/components/RulesPanel.svelte';
   import LinesPanel from '#lib/components/LinesPanel.svelte';
   import GitDialog from '#lib/components/GitDialog.svelte';
+  import UrlDialog from '#lib/components/UrlDialog.svelte';
   import { activeRules, loadRules, saveRules, type RulesConfig } from '#lib/rules.ts';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { getVersion } from '@tauri-apps/api/app';
@@ -479,6 +480,15 @@
     }
   }
 
+  // ---- Open a web link (Ctrl+L) ----
+  let urlOpen = $state(false);
+  function openDownloaded(side: SideName, path: string) {
+    urlOpen = false;
+    pasteMode = false;
+    recentOpen = false;
+    setPath(side, path);
+  }
+
   // ---- Compare with the clipboard (Ctrl+Shift+V) ----
   /** The original file (left) against whatever text was copied last. */
   async function compareClipboard() {
@@ -585,6 +595,7 @@
     else if (k === '0') zoom(0);
     else if (k === 'o') choose(paths.left ? 'right' : 'left');
     else if (k === 'v' && e.shiftKey) compareClipboard();
+    else if (k === 'l') urlOpen = true;
     else return;
     e.preventDefault();
   }
@@ -676,7 +687,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
       </button>
       {#if summary && summary.blocks === 0}
-        <span class="counter same">✓ No differences</span>
+        <span class="counter same" title="No differences">✓<span class="nd"> No differences</span></span>
       {:else}
         <span class="counter" aria-live="polite">
           <b><RollingNumber value={summary && current ? fmtNum(current.index + 1) : '–'} dir={roll} /></b>
@@ -869,6 +880,7 @@
             {/if}
             <p class="orp rise" style:--i={2}>
               No files? <button type="button" class="link" onclick={() => (pasteMode = true)}>Paste text instead</button>
+              · <button type="button" class="link" onclick={() => (urlOpen = true)} title="Ctrl+L">Open a web link</button>
               {#if paths.left}
                 · <button type="button" class="link" onclick={compareClipboard} title="Ctrl+Shift+V">Compare with what you copied</button>
               {/if}
@@ -911,6 +923,10 @@
 
   {#if aboutOpen}
     <UpdateDialog version={version} portable={!install?.runningInstalled} known={newVersion} onClose={() => (aboutOpen = false)} />
+  {/if}
+
+  {#if urlOpen}
+    <UrlDialog onOpen={openDownloaded} onClose={() => (urlOpen = false)} />
   {/if}
 
   {#if gitOpen}
@@ -1387,7 +1403,7 @@
     stroke-linejoin: round;
   }
   /* Narrower window: the island keeps its buttons but drops their words. */
-  @container bar (max-width: 1140px) {
+  @container bar (max-width: 1180px) {
     .ib .lbl,
     .chip .long,
     .iglbl {
@@ -2231,6 +2247,9 @@
   }
   /* The smallest windows: everything a little tighter, so the window buttons always fit. */
   @container bar (max-width: 840px) {
+    .counter .nd {
+      display: none;
+    }
     .chip {
       padding: 0 5px;
       font-size: 12px;
