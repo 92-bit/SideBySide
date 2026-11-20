@@ -4,7 +4,15 @@ Each release's notes are taken from its section below and shown in the app's upd
 
 ## 0.1.1
 
-Lots of fixes, big and small.
+A whole new look, and lots of fixes, big and small.
+
+New look:
+- A fresh design: the two files sit side by side as cards, with a pin at each difference
+- 8 colour themes (Aurora, Paper, Signal, Midnight, Dusk, Forest, Glacier, High contrast), each in dark and light, or matching Windows. Pick one with the Theme button at the top
+- The main buttons (next/previous difference, Find, Go to line, Ignore) sit together in the top bar
+- A new start screen: pick or drop your two files, or paste text, and see your recent comparisons
+- Clearer fonts, built into the app (Geist and Geist Mono)
+- Small, calm animations that stay out of your way (turned off if Windows is set to reduce motion)
 
 Comparing:
 - Files saved as UTF-16 (common with some Windows programs) can now be compared
