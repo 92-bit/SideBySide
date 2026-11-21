@@ -57,7 +57,7 @@ right-click the app and choose **Open**)*.
 
 ## 🗺️ Roadmap
 
-### Version 1 — the essentials
+### The essentials
 - [x] Compare two files, from tiny to very large
 - [x] Highlight the exact words that changed inside a line
 - [x] Drag and drop files onto the window
@@ -73,7 +73,7 @@ right-click the app and choose **Open**)*.
 - [x] Right-click **Compare with SideBySide** in File Explorer
 - [x] Automatic updates, signed so they can't be faked
 
-### Version 2 — new
+### More tools
 - [x] A new look with 8 colour themes, light and dark
 - [x] Colours for code (about 20 kinds of code files)
 - [x] Live reload: follows a file as it changes (great for log files)
