@@ -146,6 +146,21 @@ npm run tauri build      # build the finished app
 
 ---
 
+## 🔒 Privacy
+
+SideBySide doesn't collect, store or send any information about you or your files. There are no accounts, no
+tracking and no ads. It only goes online in two cases:
+
+- **Update check:** once a day it downloads a small file from this project's GitHub page to see if a new version
+  exists. It sends nothing about you or your files. GitHub may log the visit like any website visit (see
+  [GitHub's privacy statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement)).
+  To turn it off, open **Help → About** and untick **Check for updates automatically**.
+- **Web links you open yourself** (<kbd>Ctrl</kbd>+<kbd>L</kbd>): it downloads that page so you can compare it.
+
+Everything else, including your settings and recent comparisons, stays on your computer.
+
+---
+
 ## 🤝 Contributing
 
 Ideas, bug reports and translations are very welcome!
